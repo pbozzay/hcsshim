@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	runhcsopts "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
+	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 	containerd_v1_types "github.com/containerd/containerd/api/types/task"
@@ -163,15 +164,36 @@ func (s *service) createInternal(ctx context.Context, req *task.CreateTaskReques
 			resp.Pid = uint32(e.Pid())
 			return resp, nil
 		}
-		pod, err = createPod(ctx, s.events, req, &spec)
+
+		// Determine what type of pod should be created.
+		isKryptonPod, err := oci.IsKryptonSandboxMode(spec.Annotations)
 		if err != nil {
 			s.cl.Unlock()
 			return nil, err
 		}
-		t, _ := pod.GetTask(req.ID)
-		e, _ := t.GetExec("")
-		resp.Pid = uint32(e.Pid())
-		s.taskOrPod.Store(pod)
+
+		if isKryptonPod {
+			log.G(ctx).Debug("Creating a Krypton Pod.")
+			pod, err := createKryptonPod(ctx, s.events, req, &spec)
+			if err != nil {
+				s.cl.Unlock()
+				return nil, err
+			}
+			t, _ := pod.GetTask(req.ID)
+			e, _ := t.GetExec("")
+			resp.Pid = uint32(e.Pid())
+			s.taskOrPod.Store(pod)
+		} else {
+			pod, err = createPod(ctx, s.events, req, &spec)
+			if err != nil {
+				s.cl.Unlock()
+				return nil, err
+			}
+			t, _ := pod.GetTask(req.ID)
+			e, _ := t.GetExec("")
+			resp.Pid = uint32(e.Pid())
+			s.taskOrPod.Store(pod)
+		}
 	} else {
 		t, err := newHcsStandaloneTask(ctx, s.events, req, &spec)
 		if err != nil {

@@ -2,7 +2,33 @@ package oci
 
 import (
 	"fmt"
+	"strings"
 )
+
+// PrototypeKryptonSandboxTypeAnnotation specifies whether a krypton sandbox will be created.
+const PrototypeKryptonSandboxTypeAnnotation = "io.kubernetes.cri.kryptonsandbox"
+
+// PrototypeKryptonSandboxType defines the valid types of the
+// `PrototypeKryptonSandboxTypeAnnotation` annotation.
+type PrototypeKryptonSandboxType bool
+
+// IsKryptonSandboxMode searches `a` for `key` and if found verifies that the
+// value is `true` or `false` in any case. If `key` is not found returns `def`.
+func IsKryptonSandboxMode(a map[string]string) (bool, error) {
+	if v, ok := a[PrototypeKryptonSandboxTypeAnnotation]; ok {
+		switch strings.ToLower(v) {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		default:
+			return false, fmt.Errorf("invalid '%s': '%s'", PrototypeKryptonSandboxTypeAnnotation, v)
+		}
+	}
+
+	// No value was set, use the default (false).
+	return false, nil
+}
 
 // KubernetesContainerTypeAnnotation is the annotation used by CRI to define the `ContainerType`.
 const KubernetesContainerTypeAnnotation = "io.kubernetes.cri.container-type"
