@@ -93,7 +93,7 @@ func (p *kryptonPod) ID() string {
 }
 
 func (p *kryptonPod) CreateTask(ctx context.Context, req *task.CreateTaskRequest, s *specs.Spec) (_ shimTask, err error) {
-	log.G(ctx).WithField("id", req.ID).Debug("CreateTask called; creating a workload container.")
+	log.G(ctx).WithField("id", req.ID).Debug("PBOZZAY: Krypton CreateTask called; creating a workload container.")
 
 	if req.ID == p.id {
 		return nil, errors.Wrapf(errdefs.ErrAlreadyExists, "task with id: '%s' already exists", req.ID)
@@ -136,8 +136,10 @@ func (p *kryptonPod) CreateTask(ctx context.Context, req *task.CreateTaskRequest
 			sid)
 	}
 
+	//st, err := newHcsTask(ctx, p.events, nil, false, req, s)
 	//st, err := newHcsTask(ctx, p.events, p.host, false, req, s)
-	st, err := newHcsTask(ctx, p.events, nil, false, req, s)
+	// TODO(pbozzay): newKryptonTask to create the Krypton VM
+	st, err := newKryptonTaskCustom(ctx, p.events, req, s)
 	if err != nil {
 		return nil, err
 	}

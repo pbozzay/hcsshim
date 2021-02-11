@@ -255,7 +255,6 @@ type pod struct {
 	//
 	// It MUST be treated as read only in the lifetime of the pod.
 	host *uvm.UtilityVM
-	
 	// jobContainer specifies whether this pod is for WCOW job containers only.
 	//
 	// It MUST be treated as read only in the lifetime of the pod.

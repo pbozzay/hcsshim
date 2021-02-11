@@ -129,8 +129,8 @@ func ConvertCPULimits(ctx context.Context, cid string, spec *specs.Spec, maxCPUC
 // container objects, WCOW only. The containers storage should have been mounted already.
 func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInternal) (*schema1.ContainerConfig, *hcsschema.Container, error) {
 	log.G(ctx).Debug("hcsshim: CreateHCSContainerDocument")
-	// TODO: Make this safe if exported so no null pointer dereferences.
 
+	// TODO: Make this safe if exported so no null pointer dereferences.
 	if coi.Spec == nil {
 		return nil, nil, fmt.Errorf("cannot create HCS container document - OCI spec is missing")
 	}
