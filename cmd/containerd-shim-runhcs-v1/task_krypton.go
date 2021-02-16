@@ -98,7 +98,15 @@ func newKryptonTask(
 			"spec":   s,
 		}).Debug("newKryptonTask:SetPath to new location(currently expecting \\vm")
 
-		io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
+		// TODO(pbozzay): Is this right, or should I be using
+		/*
+			io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
+			if err != nil {
+				return nil, err
+			}
+		*/
+
+		io, err := cmd.NewNpipeIO(ctx, req.Stdin, req.Stdout, req.Stderr, req.Terminal)
 		if err != nil {
 			return nil, err
 		}

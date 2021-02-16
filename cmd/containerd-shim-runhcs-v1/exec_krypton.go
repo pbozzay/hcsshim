@@ -32,7 +32,7 @@ func newKryptonExec(
 	tid string,
 	c cow.Container,
 	id, bundle string,
-	isWCOW bool,
+	isWCOW bool, // TODO(pbozzay): Remove?
 	spec *specs.Process,
 	io cmd.UpstreamIO) shimExec {
 	log.G(ctx).WithFields(logrus.Fields{
@@ -191,59 +191,63 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		}()
 	}
 
-	/*
-		RESUME HERE
-		if len(req.Args) == 0 {
-			return 0, errors.New("missing command")
-		}
-		np, err := NewNpipeIO(ctx, req.Stdin, req.Stdout, req.Stderr, req.Terminal)
-		if err != nil {
-			return 0, err
-		}
-		defer np.Close(ctx)
-
-		cmd := CommandContext(ctx, vm, req.Args[0], req.Args[1:]...)
-		if req.Workdir != "" {
-			cmd.Spec.Cwd = req.Workdir
-		}
-		if vm.OS() == "windows" {
-			cmd.Spec.User.Username = `NT AUTHORITY\SYSTEM`
-		}
-
-		cmd.Spec.Terminal = req.Terminal
-		cmd.Stdin = np.Stdin()
-		cmd.Stdout = np.Stdout()
-		cmd.Stderr = np.Stderr()
-		cmd.Log = log.G(ctx).WithField(logfields.UVMID, vm.ID())
-		err = cmd.Run()
-
-		return cmd.ExitState.ExitCode(), err
-	*/
+	log.G(ctx).WithFields(logrus.Fields{"args": ke.spec.Args}).Debug("PBOZZAY: CMD details!")
+	log.G(ctx).WithFields(logrus.Fields{"cmdline": ke.spec.CommandLine}).Debug("PBOZZAY: CMD details!")
+	log.G(ctx).WithFields(logrus.Fields{"cwd": ke.spec.Cwd}).Debug("PBOZZAY: CMD details!")
+	log.G(ctx).WithFields(logrus.Fields{"user": ke.spec.User.Username}).Debug("PBOZZAY: CMD details!")
 
 	// TODO(pbozzay): Create the CMD created correctly.
 	//np, err := cmd.NewNpipeIO(ctx, ke.io.StdinPath(), ke.io.StdoutPath(), ke.io.StderrPath(), ke.io.Terminal())
+	//log.G(ctx).WithFields(logrus.Fields{"cmd_spec": ke.spec.Args}).Debug("PBOZZAY: NewPipe created!")
+	//if err != nil {
+	//	return err
+	//}
+	//defer np.Close(ctx)
 
-	cmd := &cmd.Cmd{
-		Host:   ke.c,
-		Stdin:  ke.io.Stdin(),
-		Stdout: ke.io.Stdout(),
-		Stderr: ke.io.Stderr(),
-		Log: log.G(ctx).WithFields(logrus.Fields{
+	if true {
+		ke.spec.Args[0] = "C:\\windows\\system32\\cmd.exe /c echo hi"
+		ke.spec.Args[1] = ""
+		ke.spec.Args[2] = ""
+		command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)
+		command.Spec.User.Username = `NT AUTHORITY\SYSTEM`
+		command.Spec.Terminal = ke.spec.Terminal
+		command.Stdin = ke.io.Stdin()
+		command.Stdout = ke.io.Stdout()
+		command.Stderr = ke.io.Stderr()
+		command.Log = log.G(ctx).WithFields(logrus.Fields{
 			"tid": ke.tid,
 			"eid": ke.id,
-		}),
-		CopyAfterExitTimeout: time.Second * 1,
+		})
+
+		log.G(ctx).WithFields(logrus.Fields{"cmd_spec": command.Spec}).Debug("PBOZZAY: About to start CMD METHOD 1!")
+		err = command.Start()
+		if err != nil {
+			return err
+		}
+		ke.p = command
+	} else {
+		log.G(ctx).WithFields(logrus.Fields{"cmd_spec": "step 1"}).Debug("")
+		command := &cmd.Cmd{
+			Host:                 ke.c,
+			Stdin:                ke.io.Stdin(),
+			Stdout:               ke.io.Stdout(),
+			Stderr:               ke.io.Stderr(),
+			CopyAfterExitTimeout: time.Second * 1,
+		}
+
+		if ke.isWCOW || ke.id != ke.tid {
+			// An init exec passes the process as part of the config. We only pass
+			// the spec if this is a true exec.
+			command.Spec = ke.spec
+		}
+
+		log.G(ctx).WithFields(logrus.Fields{"cmd_spec": command.Spec}).Debug("PBOZZAY: About to start CMD METHOD 2!")
+		err = command.Start()
+		if err != nil {
+			return err
+		}
+		ke.p = command
 	}
-	if ke.isWCOW || ke.id != ke.tid {
-		// An init exec passes the process as part of tke config. We only pass
-		// the spec if this is a true exec.
-		cmd.Spec = ke.spec
-	}
-	err = cmd.Start()
-	if err != nil {
-		return err
-	}
-	ke.p = cmd
 
 	// Assign tke PID and transition the state.
 	ke.pid = ke.p.Process.Pid()
