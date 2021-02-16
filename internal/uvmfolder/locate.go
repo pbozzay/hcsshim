@@ -16,6 +16,11 @@ import (
 // order so that the upper-most RO layer is at the start, and the base OS layer is the
 // end.
 func LocateUVMFolder(ctx context.Context, layerFolders []string) (string, error) {
+	log.G(ctx).WithFields(logrus.Fields{
+		"layerFolders": layerFolders,
+		"count":        len(layerFolders),
+	}).Debug("PBOZZA: Layer folders were...")
+
 	var uvmFolder string
 	index := 0
 	for _, layerFolder := range layerFolders {

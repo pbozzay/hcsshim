@@ -136,10 +136,8 @@ func (p *kryptonPod) CreateTask(ctx context.Context, req *task.CreateTaskRequest
 			sid)
 	}
 
-	//st, err := newHcsTask(ctx, p.events, nil, false, req, s)
-	//st, err := newHcsTask(ctx, p.events, p.host, false, req, s)
 	// TODO(pbozzay): newKryptonTask to create the Krypton VM
-	st, err := newKryptonTaskCustom(ctx, p.events, req, s)
+	st, err := newKryptonTask(ctx, p.events, req, s)
 	if err != nil {
 		return nil, err
 	}

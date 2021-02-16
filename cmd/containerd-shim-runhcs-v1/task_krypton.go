@@ -12,268 +12,27 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/runtime"
 	"github.com/containerd/containerd/runtime/v2/task"
-	"github.com/containerd/typeurl"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 
 	// Might not need all of these.
+
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
-	runhcsopts "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/stats"
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
-	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/resources"
 	"github.com/Microsoft/hcsshim/internal/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 )
 
-/*
-// This function is unused.
-func newKryptonStandaloneTask(ctx context.Context, events publisher, req *task.CreateTaskRequest, s *specs.Spec) (shimTask, error) {
-	log.G(ctx).WithField("tid", req.ID).Debug("newKryptonStandaloneTask")
-
-	owner := filepath.Base(os.Args[0])
-
-	if !oci.IsWCOW(s) {
-		return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "oci spec does not contain WCOW or LCOW spec")
-	}
-
-	//if osversion.Get().Build >= osversion.RS5 && oci.IsIsolated(s) {
-	//}
-
-	var parent *uvm.UtilityVM
-	// Create the UVM parent
-	opts, err := oci.SpecToUVMCreateOpts(ctx, s, fmt.Sprintf("%s@vm", req.ID), owner)
-	if err != nil {
-		return nil, err
-	}
-	wopts := (opts).(*uvm.OptionsWCOW)
-
-	// In order for the UVM sandbox.vhdx not to collide with the actual
-	// nested Argon sandbox.vhdx we append the \vm folder to the last
-	// entry in the list.
-	layersLen := len(s.Windows.LayerFolders)
-	layers := make([]string, layersLen)
-	copy(layers, s.Windows.LayerFolders)
-
-	vmPath := filepath.Join(layers[layersLen-1], "vm")
-	err := os.MkdirAll(vmPath, 0)
-	if err != nil {
-		return nil, err
-	}
-	layers[layersLen-1] = vmPath
-	wopts.LayerFolders = layers
-
-	parent, err = uvm.CreateWCOW(ctx, wopts)
-	if err != nil {
-		return nil, err
-	}
-
-	err = parent.Start(ctx)
-	if err != nil {
-		parent.Close()
-	}
-
-	shim, err := newKryptonTask(ctx, events, parent, true, req, s)
-	if err != nil {
-		if parent != nil {
-			parent.Close()
-		}
-		return nil, err
-	}
-	return shim, nil
-}
-*/
-
-// Objective: Boot a UVM from the /container folder.
-// 0) Doctor the container image so that it's got GCS enabled, and Template VHD's in the root.
-// 1) Convert the OCI container request to internal UVM create options (oci.SpecToUVMCreateOpts() does this). Extract wopts from the result since this is Windows.
-// 2) Point at the \container folder instead of \vm because that's where the actual container image is.
-// 3) Call krypton = uvm.CreateWCOW to create the UVM
-// 4) Call krypton.Start(ctx) to start the UVM.
-func newKryptonTaskCustom(
-	ctx context.Context,
-	events publisher,
-	req *task.CreateTaskRequest,
-	s *specs.Spec) (_ shimTask, err error) {
-
-	owner := filepath.Base(os.Args[0])
-
-	log.G(ctx).WithFields(logrus.Fields{
-		"tid":   req.ID,
-		"owner": owner,
-		"spec":  s,
-	}).Debug("newKryptonTaskCustom")
-
-	// Right now this will look at the metadata rather than the OCI spec to get container
-	// parameters for the UVM.
-	//
-	// TODO(pbozzay): Create a version of this function that can take a spec and convert the
-	// 				  container portion of the request to a UVM spec.
-	opts, err := oci.SpecToKryptonUVMCreateOpts(ctx, s, fmt.Sprintf("%s@vm", req.ID), owner)
-	if err != nil {
-		return nil, err
-	}
-
-	var krypton *uvm.UtilityVM
-	switch opts.(type) {
-	case *uvm.OptionsLCOW:
-		return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "Krypton tasks are not supported for LCOW.")
-	case *uvm.OptionsWCOW:
-		wopts := (opts).(*uvm.OptionsWCOW)
-
-		// TODO(pbozzay): Point at the Argon sandbox instead of the \vm directory.
-		//
-		// In order for the UVM sandbox.vhdx not to collide with the actual
-		// nested Argon sandbox.vhdx we append the \vm folder to the last
-		// entry in the list.
-		layersLen := len(s.Windows.LayerFolders)
-		layers := make([]string, layersLen)
-		copy(layers, s.Windows.LayerFolders)
-
-		vmPath := filepath.Join(layers[layersLen-1], "vm")
-		err := os.MkdirAll(vmPath, 0)
-		if err != nil {
-			return nil, err
-		}
-		layers[layersLen-1] = vmPath
-		wopts.LayerFolders = layers
-
-		log.G(ctx).WithFields(logrus.Fields{
-			"tid":    req.ID,
-			"vmPath": vmPath,
-			"spec":   s,
-		}).Debug("newKryptonTaskCustom:SetPath to new location(currently expecting \\vm")
-
-		// TODO(pbozzay): Incomplete beyond this point.
-		krypton, err = uvm.CreateWCOW(ctx, wopts)
-		if err != nil {
-			return nil, err
-		}
-
-		//
-		// This is all pulled from the Argon newHcsTask function. It needs to be ported to Krypton.
-		//
-		/*
-			io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
-			if err != nil {
-				return nil, err
-			}
-
-			var netNS string
-			if s.Windows != nil &&
-				s.Windows.Network != nil {
-				netNS = s.Windows.Network.NetworkNamespace
-			}
-
-			var shimOpts *runhcsopts.Options
-			if req.Options != nil {
-				v, err := typeurl.UnmarshalAny(req.Options)
-				if err != nil {
-					return nil, err
-				}
-				shimOpts = v.(*runhcsopts.Options)
-			}
-
-			opts := hcsoci.CreateOptions{
-				ID:               req.ID,
-				Owner:            owner,
-				Spec:             s,
-				HostingSystem:    nil,
-				NetworkNamespace: netNS,
-			}
-
-			if shimOpts != nil {
-				opts.ScaleCPULimitsToSandbox = shimOpts.ScaleCpuLimitsToSandbox
-			}
-
-			// TODO(pbozzay): Change out the CreateContainer implementation for a CreateKrypton.
-			system, resources, err := hcsoci.CreateContainer(ctx, &opts)
-			if err != nil {
-				return nil, err
-			}
-
-			ht := &kryptonTask{
-				events:   events,
-				id:       req.ID,
-				c:        system,
-				cr:       resources,
-				closed:   make(chan struct{}),
-				taskSpec: s,
-			}
-
-			ht.init = newHcsExec(
-				ctx,
-				events,
-				req.ID,
-				nil, // TODO(pbozzay): Was "parent", but we are not running on the host so nil seems wrong.
-				system,
-				req.ID,
-				req.Bundle,
-				true,
-				s.Process,
-				io,
-			)
-
-			// In the normal case the `Signal` call from the caller killed this task's
-			// init process. Or the init process ran to completion - this will mostly
-			// happen when we are creating a template and want to wait for init process
-			// to finish before we save the template. In such cases do not tear down the
-			// container after init exits - because we need the container in the template
-			go ht.waitInitExit(true)
-
-			// Publish the created event
-			ht.events.publishEvent(
-				ctx,
-				runtime.TaskCreateEventTopic,
-				&eventstypes.TaskCreate{
-					ContainerID: req.ID,
-					Bundle:      req.Bundle,
-					Rootfs:      req.Rootfs,
-					IO: &eventstypes.TaskIO{
-						Stdin:    req.Stdin,
-						Stdout:   req.Stdout,
-						Stderr:   req.Stderr,
-						Terminal: req.Terminal,
-					},
-					Checkpoint: "",
-					Pid:        uint32(ht.init.Pid()),
-				})
-			return ht, nil
-		*/
-	}
-
-	log.G(ctx).Debug("Starting Krypton")
-
-	err = krypton.Start(ctx)
-	if err != nil {
-		krypton.Close()
-	}
-
-	// TODO: Create a "task" in the Krypton that controls its lifetime. This seems like what is
-	// 		 going to be the most tricky thing.
-	time.Sleep(15 * time.Second)
-
-	log.G(ctx).Debug("Closing Krypton")
-	krypton.Close()
-
-	return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "STOPPING EXECUTION, INCOMPLETE IMPLEMENTATION 2.")
-}
-
-// newKryptonTask creates a krypton vm within `parent` and its init exec process in
-// the `shimExecCreated` state and returns the task that tracks its lifetime.
-//
-// If `parent ==p nil` the container is created on the host.
-//
 // Objective: Boot a UVM from the /container folder.
 // 0) Doctor the container image so that it's got GCS enabled, and Template VHD's in the root.
 // 1) Convert the OCI container request to internal UVM create options (oci.SpecToUVMCreateOpts() does this). Extract wopts from the result since this is Windows.
@@ -294,90 +53,121 @@ func newKryptonTask(
 		"spec":  s,
 	}).Debug("newKryptonTask")
 
-	io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
+	// Right now this will look at the metadata rather than the OCI spec to get container
+	// parameters for the UVM.
+	//
+	// TODO(pbozzay): Create a version of this function that can take a spec and convert the
+	// 				  container portion of the request to a UVM spec.
+	opts, err := oci.SpecToKryptonUVMCreateOpts(ctx, s, fmt.Sprintf("%s@vm", req.ID), owner)
 	if err != nil {
 		return nil, err
 	}
 
-	var netNS string
-	if s.Windows != nil &&
-		s.Windows.Network != nil {
-		netNS = s.Windows.Network.NetworkNamespace
-	}
+	var wcow *uvm.UtilityVM
+	var krypton *uvm.KryptonContainer
 
-	var shimOpts *runhcsopts.Options
-	if req.Options != nil {
-		v, err := typeurl.UnmarshalAny(req.Options)
+	switch opts.(type) {
+	case *uvm.OptionsLCOW:
+		return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "Krypton tasks are not supported for LCOW.")
+	case *uvm.OptionsWCOW:
+		wopts := (opts).(*uvm.OptionsWCOW)
+
+		// In order for the UVM sandbox.vhdx not to collide with the actual
+		// nested Argon sandbox.vhdx we append the \vm folder to the last
+		// entry in the list.
+		log.G(ctx).WithFields(logrus.Fields{
+			"LAYERS": s.Windows.LayerFolders,
+			"spec":   s,
+		}).Debug("PBOZZA: Layers were...")
+
+		layersLen := len(s.Windows.LayerFolders)
+		layers := make([]string, layersLen)
+		copy(layers, s.Windows.LayerFolders)
+
+		vmPath := filepath.Join(layers[layersLen-1], "vm")
+		err := os.MkdirAll(vmPath, 0)
 		if err != nil {
 			return nil, err
 		}
-		shimOpts = v.(*runhcsopts.Options)
+		layers[layersLen-1] = vmPath
+		wopts.LayerFolders = layers
+
+		log.G(ctx).WithFields(logrus.Fields{
+			"tid":    req.ID,
+			"vmPath": vmPath,
+			"spec":   s,
+		}).Debug("newKryptonTask:SetPath to new location(currently expecting \\vm")
+
+		io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
+		if err != nil {
+			return nil, err
+		}
+
+		// This is pulled from the Argon newHcsTask function. It needs to be ported to Krypton.
+		/*
+			var netNS string
+			if s.Windows != nil &&
+				s.Windows.Network != nil {
+				netNS = s.Windows.Network.NetworkNamespace
+			}
+		*/
+
+		// Create a krypton cow.Container but do not start it.
+		wcow, err = uvm.CreateWCOW(ctx, wopts)
+		if err != nil {
+			return nil, err
+		}
+		krypton = &uvm.KryptonContainer{UtilityVM: wcow}
+
+		kt := &kryptonTask{
+			events:   events,
+			id:       req.ID,
+			c:        krypton,
+			closed:   make(chan struct{}),
+			taskSpec: s,
+		}
+
+		// Create an exec inside of this container; this will start the container.
+		kt.init = newKryptonExec(
+			ctx,
+			events,
+			req.ID,
+			krypton,
+			req.ID,
+			req.Bundle,
+			true,
+			s.Process,
+			io,
+		)
+
+		// In the normal case the `Signal` call from the caller killed this task's
+		// init process. Or the init process ran to completion - this will mostly
+		// happen when we are creating a template and want to wait for init process
+		// to finish before we save the template. In such cases do not tear down the
+		// container after init exits - because we need the container in the template
+		go kt.waitInitExit(true)
+
+		// Publish the created event
+		kt.events.publishEvent(
+			ctx,
+			runtime.TaskCreateEventTopic,
+			&eventstypes.TaskCreate{
+				ContainerID: req.ID,
+				Bundle:      req.Bundle,
+				Rootfs:      req.Rootfs,
+				IO: &eventstypes.TaskIO{
+					Stdin:    req.Stdin,
+					Stdout:   req.Stdout,
+					Stderr:   req.Stderr,
+					Terminal: req.Terminal,
+				},
+				Checkpoint: "",
+				Pid:        uint32(kt.init.Pid()),
+			})
+		return kt, nil
 	}
 
-	opts := hcsoci.CreateOptions{
-		ID:               req.ID,
-		Owner:            owner,
-		Spec:             s,
-		HostingSystem:    nil,
-		NetworkNamespace: netNS,
-	}
-
-	if shimOpts != nil {
-		opts.ScaleCPULimitsToSandbox = shimOpts.ScaleCpuLimitsToSandbox
-	}
-
-	// TODO(pbozzay): Change out the CreateContainer implementation for a CreateKrypton.
-	system, resources, err := hcsoci.CreateContainer(ctx, &opts)
-	if err != nil {
-		return nil, err
-	}
-
-	ht := &kryptonTask{
-		events:   events,
-		id:       req.ID,
-		c:        system,
-		cr:       resources,
-		closed:   make(chan struct{}),
-		taskSpec: s,
-	}
-	ht.init = newHcsExec(
-		ctx,
-		events,
-		req.ID,
-		nil, // TODO(pbozzay): Was "parent", but we are not running on the host so nil seems wrong.
-		system,
-		req.ID,
-		req.Bundle,
-		true,
-		s.Process,
-		io,
-	)
-
-	// In the normal case the `Signal` call from the caller killed this task's
-	// init process. Or the init process ran to completion - this will mostly
-	// happen when we are creating a template and want to wait for init process
-	// to finish before we save the template. In such cases do not tear down the
-	// container after init exits - because we need the container in the template
-	go ht.waitInitExit(true)
-
-	// Publish the created event
-	ht.events.publishEvent(
-		ctx,
-		runtime.TaskCreateEventTopic,
-		&eventstypes.TaskCreate{
-			ContainerID: req.ID,
-			Bundle:      req.Bundle,
-			Rootfs:      req.Rootfs,
-			IO: &eventstypes.TaskIO{
-				Stdin:    req.Stdin,
-				Stdout:   req.Stdout,
-				Stderr:   req.Stderr,
-				Terminal: req.Terminal,
-			},
-			Checkpoint: "",
-			Pid:        uint32(ht.init.Pid()),
-		})
-	return ht, nil
+	return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "Invalid conditions for newKryptonTask")
 }
 
 var _ = (shimTask)(&kryptonTask{})
@@ -402,7 +192,7 @@ type kryptonTask struct {
 	//
 	// It MUST be treated as read only in the lifetime of this task EXCEPT after
 	// a Kill to the init task in which all resources must be released.
-	cr *resources.Resources
+	//cr *resources.Resources
 	// init is the init process of the container.
 	//
 	// Note: the invariant `container state == init.State()` MUST be true. IE:

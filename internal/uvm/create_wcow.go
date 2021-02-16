@@ -91,6 +91,8 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	// Align the requested memory size.
 	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
 
+	log.G(ctx).Debug(fmt.Sprintf("PBOZZA: Mounting VSMB share to %s:Files\\Files", uvmFolder))
+
 	// UVM rootfs share is readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
@@ -98,6 +100,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 		DirectFileMappingInMB: 1024, // Sensible default, but could be a tuning parameter somewhere
 		Shares: []hcsschema.VirtualSmbShare{
 			{
+				// TODO(pbozzay): Change this folder path to Files\Files.
 				Name:    "os",
 				Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
 				Options: vsmbOpts,

@@ -79,6 +79,7 @@ func (s *service) Create(ctx context.Context, req *task.CreateTaskRequest) (resp
 	ctx, span := trace.StartSpan(ctx, "Create")
 
 	log.G(ctx).Debug("PBOZZAY: Create called in service")
+	log.G(ctx).Debug(req)
 
 	defer span.End()
 	defer func() {
