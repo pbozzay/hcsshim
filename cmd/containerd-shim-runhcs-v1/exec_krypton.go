@@ -196,58 +196,23 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	log.G(ctx).WithFields(logrus.Fields{"cwd": ke.spec.Cwd}).Debug("PBOZZAY: CMD details!")
 	log.G(ctx).WithFields(logrus.Fields{"user": ke.spec.User.Username}).Debug("PBOZZAY: CMD details!")
 
-	// TODO(pbozzay): Create the CMD created correctly.
-	//np, err := cmd.NewNpipeIO(ctx, ke.io.StdinPath(), ke.io.StdoutPath(), ke.io.StderrPath(), ke.io.Terminal())
-	//log.G(ctx).WithFields(logrus.Fields{"cmd_spec": ke.spec.Args}).Debug("PBOZZAY: NewPipe created!")
-	//if err != nil {
-	//	return err
-	//}
-	//defer np.Close(ctx)
+	command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)
+	command.Spec.User.Username = `NT AUTHORITY\SYSTEM`
+	command.Spec.Terminal = ke.spec.Terminal
+	command.Stdin = ke.io.Stdin()
+	command.Stdout = ke.io.Stdout()
+	command.Stderr = ke.io.Stderr()
+	command.Log = log.G(ctx).WithFields(logrus.Fields{
+		"tid": ke.tid,
+		"eid": ke.id,
+	})
 
-	if true {
-		ke.spec.Args[0] = "C:\\windows\\system32\\cmd.exe /c echo hi"
-		ke.spec.Args[1] = ""
-		ke.spec.Args[2] = ""
-		command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)
-		command.Spec.User.Username = `NT AUTHORITY\SYSTEM`
-		command.Spec.Terminal = ke.spec.Terminal
-		command.Stdin = ke.io.Stdin()
-		command.Stdout = ke.io.Stdout()
-		command.Stderr = ke.io.Stderr()
-		command.Log = log.G(ctx).WithFields(logrus.Fields{
-			"tid": ke.tid,
-			"eid": ke.id,
-		})
-
-		log.G(ctx).WithFields(logrus.Fields{"cmd_spec": command.Spec}).Debug("PBOZZAY: About to start CMD METHOD 1!")
-		err = command.Start()
-		if err != nil {
-			return err
-		}
-		ke.p = command
-	} else {
-		log.G(ctx).WithFields(logrus.Fields{"cmd_spec": "step 1"}).Debug("")
-		command := &cmd.Cmd{
-			Host:                 ke.c,
-			Stdin:                ke.io.Stdin(),
-			Stdout:               ke.io.Stdout(),
-			Stderr:               ke.io.Stderr(),
-			CopyAfterExitTimeout: time.Second * 1,
-		}
-
-		if ke.isWCOW || ke.id != ke.tid {
-			// An init exec passes the process as part of the config. We only pass
-			// the spec if this is a true exec.
-			command.Spec = ke.spec
-		}
-
-		log.G(ctx).WithFields(logrus.Fields{"cmd_spec": command.Spec}).Debug("PBOZZAY: About to start CMD METHOD 2!")
-		err = command.Start()
-		if err != nil {
-			return err
-		}
-		ke.p = command
+	log.G(ctx).WithFields(logrus.Fields{"cmd_spec": command.Spec}).Debug("PBOZZAY: About to start CMD METHOD 1!")
+	err = command.Start()
+	if err != nil {
+		return err
 	}
+	ke.p = command
 
 	// Assign tke PID and transition the state.
 	ke.pid = ke.p.Process.Pid()
@@ -295,8 +260,8 @@ func (ke *kryptonExec) Kill(ctx context.Context, signal uint32) error {
 	case shimExecStateRunning:
 		supported := false
 		if osversion.Get().Build >= osversion.RS5 {
-			//supported = ke.host == nil || ke.host.SignalProcessSupported()
 			// TODO(pbozzay): Change this
+			//supported = ke.host == nil || ke.host.SignalProcessSupported()
 			supported = false
 		}
 		var options interface{}
@@ -355,7 +320,7 @@ func (ke *kryptonExec) ResizePty(ctx context.Context, width, height uint32) erro
 func (ke *kryptonExec) CloseIO(ctx context.Context, stdin bool) error {
 	// If we have any upstream IO we close the upstream connection. This will
 	// unblock the `io.Copy` in the `Start()` call which will signal
-	// `he.p.CloseStdin()`. If `he.io.Stdin()` is already closed this is safe to
+	// `ke.p.CloseStdin()`. If `ke.io.Stdin()` is already closed this is safe to
 	// call multiple times.
 	ke.io.CloseStdin(ctx)
 	return nil
@@ -381,7 +346,7 @@ func (ke *kryptonExec) ForceExit(ctx context.Context, status int) {
 }
 
 // exitFromCreatedL transitions the shim to the exited state from the created
-// state. It is the callers responsibility to hold `he.sl` for the durration of
+// state. It is the callers responsibility to hold `ke.sl` for the durration of
 // this transition.
 //
 // This call is idempotent and will not affect any state if the shim is already
@@ -389,150 +354,150 @@ func (ke *kryptonExec) ForceExit(ctx context.Context, status int) {
 //
 // To transition for a created state the following must be done:
 //
-// 1. Issue `he.processDoneCancel` to unblock the goroutine
-// `he.waitForContainerExit()``.
+// 1. Issue `ke.processDoneCancel` to unblock the goroutine
+// `ke.waitForContainerExit()``.
 //
-// 2. Set `he.state`, `he.exitStatus` and `he.exitedAt` to the exited values.
+// 2. Set `ke.state`, `ke.exitStatus` and `ke.exitedAt` to the exited values.
 //
 // 3. Release any upstream IO resources that were never used in a copy.
 //
-// 4. Close `he.exited` channel to unblock any waiters who might have called
+// 4. Close `ke.exited` channel to unblock any waiters who might have called
 // `Create`/`Wait`/`Start` which is a valid pattern.
 //
 // We DO NOT send the async `TaskExit` event because we never would have sent
 // the `TaskStart`/`TaskExecStarted` event.
-func (he *kryptonExec) exitFromCreatedL(ctx context.Context, status int) {
-	if he.state != shimExecStateExited {
+func (ke *kryptonExec) exitFromCreatedL(ctx context.Context, status int) {
+	if ke.state != shimExecStateExited {
 		// Avoid logging the force if we already exited gracefully
 		log.G(ctx).WithField("status", status).Debug("kryptonExec::exitFromCreatedL")
 
 		// Unblock the container exit goroutine
-		he.processDoneOnce.Do(func() { close(he.processDone) })
+		ke.processDoneOnce.Do(func() { close(ke.processDone) })
 		// Transition this exec
-		he.state = shimExecStateExited
-		he.exitStatus = uint32(status)
-		he.exitedAt = time.Now()
+		ke.state = shimExecStateExited
+		ke.exitStatus = uint32(status)
+		ke.exitedAt = time.Now()
 		// Release all upstream IO connections (if any)
-		he.io.Close(ctx)
+		ke.io.Close(ctx)
 		// Free any waiters
-		he.exitedOnce.Do(func() {
-			close(he.exited)
+		ke.exitedOnce.Do(func() {
+			close(ke.exited)
 		})
 	}
 }
 
-// waitForExit waits for the `he.p` to exit. This MUST only be called after a
+// waitForExit waits for the `ke.p` to exit. This MUST only be called after a
 // successful call to `Create` and MUST not be called more than once.
 //
 // This MUST be called via a goroutine.
 //
 // In the case of an exit from a running process the following must be done:
 //
-// 1. Wait for `he.p` to exit.
+// 1. Wait for `ke.p` to exit.
 //
-// 2. Issue `he.processDoneCancel` to unblock the goroutine
-// `he.waitForContainerExit()` (if still running). We do this early to avoid the
+// 2. Issue `ke.processDoneCancel` to unblock the goroutine
+// `ke.waitForContainerExit()` (if still running). We do this early to avoid the
 // container exit also attempting to kill the process. However this race
 // condition is safe and handled.
 //
-// 3. Capture the process exit code and set `he.state`, `he.exitStatus` and
-// `he.exitedAt` to the exited values.
+// 3. Capture the process exit code and set `ke.state`, `ke.exitStatus` and
+// `ke.exitedAt` to the exited values.
 //
 // 4. Wait for all IO to complete and release any upstream IO connections.
 //
 // 5. Send the async `TaskExit` to upstream listeners of any events.
 //
-// 6. Close `he.exited` channel to unblock any waiters who might have called
+// 6. Close `ke.exited` channel to unblock any waiters who might have called
 // `Create`/`Wait`/`Start` which is a valid pattern.
 //
 // 7. Finally, save the UVM and this container as a template if specified.
-func (he *kryptonExec) waitForExit() {
+func (ke *kryptonExec) waitForExit() {
 	ctx, span := trace.StartSpan(context.Background(), "kryptonExec::waitForExit")
 	defer span.End()
 	span.AddAttributes(
-		trace.StringAttribute("tid", he.tid),
-		trace.StringAttribute("eid", he.id))
+		trace.StringAttribute("tid", ke.tid),
+		trace.StringAttribute("eid", ke.id))
 
-	err := he.p.Process.Wait()
+	err := ke.p.Process.Wait()
 	if err != nil {
 		log.G(ctx).WithError(err).Error("failed process Wait")
 	}
 
 	// Issue the process cancellation to unblock the container wait as early as
 	// possible.
-	he.processDoneOnce.Do(func() { close(he.processDone) })
+	ke.processDoneOnce.Do(func() { close(ke.processDone) })
 
-	code, err := he.p.Process.ExitCode()
+	code, err := ke.p.Process.ExitCode()
 	if err != nil {
 		log.G(ctx).WithError(err).Error("failed to get ExitCode")
 	} else {
 		log.G(ctx).WithField("exitCode", code).Debug("exited")
 	}
 
-	he.sl.Lock()
-	he.state = shimExecStateExited
-	he.exitStatus = uint32(code)
-	he.exitedAt = time.Now()
-	he.sl.Unlock()
+	ke.sl.Lock()
+	ke.state = shimExecStateExited
+	ke.exitStatus = uint32(code)
+	ke.exitedAt = time.Now()
+	ke.sl.Unlock()
 
 	// Wait for all IO copies to complete and free the resources.
-	he.p.Wait()
-	he.io.Close(ctx)
+	ke.p.Wait()
+	ke.io.Close(ctx)
 
 	// Only send the `runtime.TaskExitEventTopic` notification if this is a true
 	// exec. For the `init` exec this is handled in task teardown.
-	if he.tid != he.id {
+	if ke.tid != ke.id {
 		// We had a valid process so send the exited notification.
-		he.events.publishEvent(
+		ke.events.publishEvent(
 			ctx,
 			runtime.TaskExitEventTopic,
 			&eventstypes.TaskExit{
-				ContainerID: he.tid,
-				ID:          he.id,
-				Pid:         uint32(he.pid),
-				ExitStatus:  he.exitStatus,
-				ExitedAt:    he.exitedAt,
+				ContainerID: ke.tid,
+				ID:          ke.id,
+				Pid:         uint32(ke.pid),
+				ExitStatus:  ke.exitStatus,
+				ExitedAt:    ke.exitedAt,
 			})
 	}
 
 	// Free any waiters.
-	he.exitedOnce.Do(func() {
-		close(he.exited)
+	ke.exitedOnce.Do(func() {
+		close(ke.exited)
 	})
 }
 
-// waitForContainerExit waits for `he.c` to exit. Depending on the exec's state
+// waitForContainerExit waits for `ke.c` to exit. Depending on the exec's state
 // will forcibly transition this exec to the exited state and unblock any
 // waiters.
 //
 // This MUST be called via a goroutine at exec create.
-func (he *kryptonExec) waitForContainerExit() {
+func (ke *kryptonExec) waitForContainerExit() {
 	ctx, span := trace.StartSpan(context.Background(), "kryptonExec::waitForContainerExit")
 	defer span.End()
 	span.AddAttributes(
-		trace.StringAttribute("tid", he.tid),
-		trace.StringAttribute("eid", he.id))
+		trace.StringAttribute("tid", ke.tid),
+		trace.StringAttribute("eid", ke.id))
 
 	cexit := make(chan struct{})
 	go func() {
-		he.c.Wait()
+		ke.c.Wait()
 		close(cexit)
 	}()
 	select {
 	case <-cexit:
 		// Container exited first. We need to force the process into the exited
 		// state and cleanup any resources
-		he.sl.Lock()
-		switch he.state {
+		ke.sl.Lock()
+		switch ke.state {
 		case shimExecStateCreated:
-			he.exitFromCreatedL(ctx, 1)
+			ke.exitFromCreatedL(ctx, 1)
 		case shimExecStateRunning:
-			// Kill the process to unblock `he.waitForExit`.
-			he.p.Process.Kill(ctx)
+			// Kill the process to unblock `ke.waitForExit`.
+			ke.p.Process.Kill(ctx)
 		}
-		he.sl.Unlock()
-	case <-he.processDone:
+		ke.sl.Unlock()
+	case <-ke.processDone:
 		// Process exited first. This is the normal case do nothing because
-		// `he.waitForExit` will release any waiters.
+		// `ke.waitForExit` will release any waiters.
 	}
 }
