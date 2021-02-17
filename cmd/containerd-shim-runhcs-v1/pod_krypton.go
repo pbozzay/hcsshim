@@ -41,7 +41,6 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 	// Create a dummy sandbox task. This is used to signal that the sandbox process
 	// is alive and well.
 	p.sandboxTask = newWcowPodSandboxTask(ctx, events, req.ID, req.Bundle, nil)
-	//p.sandboxTask = newWcowPodSandboxTask(ctx, events, req.ID, req.Bundle, parent)
 
 	// Publish the created event. We only do this for a fake WCOW task. A
 	// HCS Task will event itself based on actual process lifetime.
@@ -61,8 +60,6 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 			Checkpoint: "",
 			Pid:        0,
 		})
-
-	log.G(ctx).WithField("id", req.ID).Debug("createKryptonPod finished")
 
 	return &p, nil
 }
@@ -136,7 +133,6 @@ func (p *kryptonPod) CreateTask(ctx context.Context, req *task.CreateTaskRequest
 			sid)
 	}
 
-	// TODO(pbozzay): newKryptonTask to create the Krypton VM
 	st, err := newKryptonTask(ctx, p.events, req, s)
 	if err != nil {
 		return nil, err
@@ -144,7 +140,6 @@ func (p *kryptonPod) CreateTask(ctx context.Context, req *task.CreateTaskRequest
 
 	p.workloadTasks.Store(req.ID, st)
 
-	log.G(ctx).WithField("id", req.ID).Debug("CreateTask finished creating a workload container.")
 	return st, nil
 }
 

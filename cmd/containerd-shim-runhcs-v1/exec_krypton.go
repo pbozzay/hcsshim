@@ -32,14 +32,12 @@ func newKryptonExec(
 	tid string,
 	c cow.Container,
 	id, bundle string,
-	isWCOW bool, // TODO(pbozzay): Remove?
 	spec *specs.Process,
 	io cmd.UpstreamIO) shimExec {
 	log.G(ctx).WithFields(logrus.Fields{
 		"tid":    tid,
 		"eid":    id, // Init exec ID is always same as Task ID
 		"bundle": bundle,
-		"wcow":   isWCOW,
 	}).Debug("newKryptonExec")
 
 	ke := &kryptonExec{
@@ -48,7 +46,6 @@ func newKryptonExec(
 		c:           c,
 		id:          id,
 		bundle:      bundle,
-		isWCOW:      isWCOW,
 		spec:        spec,
 		io:          io,
 		processDone: make(chan struct{}),
@@ -68,11 +65,6 @@ type kryptonExec struct {
 	//
 	// This MUST be treated as read only in the lifetime of the exec.
 	tid string
-	// host is the hosting VM for `c`. If `host==nil` this exec MUST be a
-	// process isolated WCOW exec.
-	//
-	// This MUST be treated as read only in the lifetime of the exec.
-	// host *uvm.UtilityVM
 	// c is the hosting container for this exec.
 	//
 	// This MUST be treated as read only in the lifetime of the exec.
@@ -87,10 +79,6 @@ type kryptonExec struct {
 	//
 	// This MUST be treated as read only in the lifetime of the exec.
 	bundle string
-	// isWCOW is set to `true` when this process is part of a Windows OCI spec.
-	//
-	// This MUST be treated as read only in the lifetime of the exec.
-	isWCOW bool
 	// spec is the OCI Process spec that was passed in at create time. This is
 	// stored because we don't actually create the process until the call to
 	// `Start`.
@@ -178,7 +166,6 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	}()
 	// The container may need to be started
 	if initializeContainer {
-		log.G(ctx).Debug("PBOZZAY: Initializing Krypton container for Exec!")
 		err = ke.c.Start(ctx)
 		if err != nil {
 			return err
@@ -191,11 +178,6 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		}()
 	}
 
-	log.G(ctx).WithFields(logrus.Fields{"args": ke.spec.Args}).Debug("PBOZZAY: CMD details!")
-	log.G(ctx).WithFields(logrus.Fields{"cmdline": ke.spec.CommandLine}).Debug("PBOZZAY: CMD details!")
-	log.G(ctx).WithFields(logrus.Fields{"cwd": ke.spec.Cwd}).Debug("PBOZZAY: CMD details!")
-	log.G(ctx).WithFields(logrus.Fields{"user": ke.spec.User.Username}).Debug("PBOZZAY: CMD details!")
-
 	command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)
 	command.Spec.User.Username = `NT AUTHORITY\SYSTEM`
 	command.Spec.Terminal = ke.spec.Terminal
@@ -207,7 +189,6 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		"eid": ke.id,
 	})
 
-	log.G(ctx).WithFields(logrus.Fields{"cmd_spec": command.Spec}).Debug("PBOZZAY: About to start CMD METHOD 1!")
 	err = command.Start()
 	if err != nil {
 		return err
@@ -266,18 +247,10 @@ func (ke *kryptonExec) Kill(ctx context.Context, signal uint32) error {
 		}
 		var options interface{}
 		var err error
-		if ke.isWCOW {
-			var opt *guestrequest.SignalProcessOptionsWCOW
-			opt, err = signals.ValidateWCOW(int(signal), supported)
-			if opt != nil {
-				options = opt
-			}
-		} else {
-			var opt *guestrequest.SignalProcessOptionsLCOW
-			opt, err = signals.ValidateLCOW(int(signal), supported)
-			if opt != nil {
-				options = opt
-			}
+		var opt *guestrequest.SignalProcessOptionsWCOW
+		opt, err = signals.ValidateWCOW(int(signal), supported)
+		if opt != nil {
+			options = opt
 		}
 		if err != nil {
 			return errors.Wrapf(errdefs.ErrFailedPrecondition, "signal %d: %v", signal, err)

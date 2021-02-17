@@ -17,8 +17,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 
-	// Might not need all of these.
-
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 
@@ -33,12 +31,8 @@ import (
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 )
 
-// Objective: Boot a UVM from the /container folder.
-// 0) Doctor the container image so that it's got GCS enabled, and Template VHD's in the root.
-// 1) Convert the OCI container request to internal UVM create options (oci.SpecToUVMCreateOpts() does this). Extract wopts from the result since this is Windows.
-// 2) Point at the \container folder instead of \vm because that's where the actual container image is.
-// 3) Call krypton = uvm.CreateWCOW to create the UVM
-// 4) Call krypton.Start(ctx) to start the UVM.
+// newKryptonTask creates a Krypton container and its init exec process in
+// the `shimExecCreated` state and returns the task that tracks its lifetime.
 func newKryptonTask(
 	ctx context.Context,
 	events publisher,
@@ -53,7 +47,7 @@ func newKryptonTask(
 		"spec":  s,
 	}).Debug("newKryptonTask")
 
-	// Right now this will look at the metadata rather than the OCI spec to get container
+	// Rigkt now this will look at the metadata rather than the OCI spec to get container
 	// parameters for the UVM.
 	//
 	// TODO(pbozzay): Create a version of this function that can take a spec and convert the
@@ -98,14 +92,6 @@ func newKryptonTask(
 			"spec":   s,
 		}).Debug("newKryptonTask:SetPath to new location(currently expecting \\vm")
 
-		// TODO(pbozzay): Is this right, or should I be using
-		/*
-			io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
-			if err != nil {
-				return nil, err
-			}
-		*/
-
 		io, err := cmd.NewNpipeIO(ctx, req.Stdin, req.Stdout, req.Stderr, req.Terminal)
 		if err != nil {
 			return nil, err
@@ -143,7 +129,6 @@ func newKryptonTask(
 			krypton,
 			req.ID,
 			req.Bundle,
-			true,
 			s.Process,
 			io,
 		)
@@ -180,11 +165,9 @@ func newKryptonTask(
 
 var _ = (shimTask)(&kryptonTask{})
 
-// kryptonTask is a generic task that represents a WCOW Container (process or
-// hypervisor isolated), or a LCOW Container. This task MAY own the UVM the
-// container is in but in the case of a POD it may just track the UVM for
-// container lifetime management. In the case of ownership when the init
-// task/exec is stopped the UVM itself will be stopped as well.
+// kryptonTask is a generic task that represents a Krypton hypervisor
+// isolated Container. When the init task/exec is stopped the container
+// itself will be stopped as well.
 type kryptonTask struct {
 	events publisher
 	// id is the id of this task when it is created.
@@ -232,22 +215,23 @@ type kryptonTask struct {
 	taskSpec *specs.Spec
 }
 
-func (ht *kryptonTask) ID() string {
-	return ht.id
+func (kt *kryptonTask) ID() string {
+	return kt.id
 }
 
-func (ht *kryptonTask) CreateExec(ctx context.Context, req *task.ExecProcessRequest, spec *specs.Process) error {
-	ht.ecl.Lock()
-	defer ht.ecl.Unlock()
+// TODO(pbozzay): Implement this.
+func (kt *kryptonTask) CreateExec(ctx context.Context, req *task.ExecProcessRequest, spec *specs.Process) error {
+	kt.ecl.Lock()
+	defer kt.ecl.Unlock()
 
 	// If the task exists or we got a request for "" which is the init task
 	// fail.
-	if _, loaded := ht.execs.Load(req.ExecID); loaded || req.ExecID == "" {
-		return errors.Wrapf(errdefs.ErrAlreadyExists, "exec: '%s' in task: '%s' already exists", req.ExecID, ht.id)
+	if _, loaded := kt.execs.Load(req.ExecID); loaded || req.ExecID == "" {
+		return errors.Wrapf(errdefs.ErrAlreadyExists, "exec: '%s' in task: '%s' already exists", req.ExecID, kt.id)
 	}
 
-	if ht.init.State() != shimExecStateRunning {
-		return errors.Wrapf(errdefs.ErrFailedPrecondition, "exec: '' in task: '%s' must be running to create additional execs", ht.id)
+	if kt.init.State() != shimExecStateRunning {
+		return errors.Wrapf(errdefs.ErrFailedPrecondition, "exec: '' in task: '%s' must be running to create additional execs", kt.id)
 	}
 
 	io, err := cmd.NewUpstreamIO(ctx, req.ID, req.Stdout, req.Stderr, req.Stdin, req.Terminal)
@@ -257,44 +241,44 @@ func (ht *kryptonTask) CreateExec(ctx context.Context, req *task.ExecProcessRequ
 
 	he := newHcsExec(
 		ctx,
-		ht.events,
-		ht.id,
-		nil, // pbozza: was ht.host
-		ht.c,
+		kt.events,
+		kt.id,
+		nil, // pbozza: was kt.host
+		kt.c,
 		req.ExecID,
-		ht.init.Status().Bundle,
+		kt.init.Status().Bundle,
 		true,
 		spec,
 		io,
 	)
 
-	ht.execs.Store(req.ExecID, he)
+	kt.execs.Store(req.ExecID, he)
 
 	// Publish the created event
-	ht.events.publishEvent(
+	kt.events.publishEvent(
 		ctx,
 		runtime.TaskExecAddedEventTopic,
 		&eventstypes.TaskExecAdded{
-			ContainerID: ht.id,
+			ContainerID: kt.id,
 			ExecID:      req.ExecID,
 		})
 
 	return nil
 }
 
-func (ht *kryptonTask) GetExec(eid string) (shimExec, error) {
+func (kt *kryptonTask) GetExec(eid string) (shimExec, error) {
 	if eid == "" {
-		return ht.init, nil
+		return kt.init, nil
 	}
-	raw, loaded := ht.execs.Load(eid)
+	raw, loaded := kt.execs.Load(eid)
 	if !loaded {
-		return nil, errors.Wrapf(errdefs.ErrNotFound, "exec: '%s' in task: '%s' not found", eid, ht.id)
+		return nil, errors.Wrapf(errdefs.ErrNotFound, "exec: '%s' in task: '%s' not found", eid, kt.id)
 	}
 	return raw.(shimExec), nil
 }
 
-func (ht *kryptonTask) KillExec(ctx context.Context, eid string, signal uint32, all bool) error {
-	e, err := ht.GetExec(eid)
+func (kt *kryptonTask) KillExec(ctx context.Context, eid string, signal uint32, all bool) error {
+	e, err := kt.GetExec(eid)
 	if err != nil {
 		return err
 	}
@@ -303,7 +287,7 @@ func (ht *kryptonTask) KillExec(ctx context.Context, eid string, signal uint32, 
 	}
 	if all {
 		// We are in a kill all on the init task. Signal everything.
-		ht.execs.Range(func(key, value interface{}) bool {
+		kt.execs.Range(func(key, value interface{}) bool {
 			err := value.(shimExec).Kill(ctx, signal)
 			if err != nil {
 				log.G(ctx).WithFields(logrus.Fields{
@@ -320,14 +304,14 @@ func (ht *kryptonTask) KillExec(ctx context.Context, eid string, signal uint32, 
 	return e.Kill(ctx, signal)
 }
 
-func (ht *kryptonTask) DeleteExec(ctx context.Context, eid string) (int, uint32, time.Time, error) {
-	e, err := ht.GetExec(eid)
+func (kt *kryptonTask) DeleteExec(ctx context.Context, eid string) (int, uint32, time.Time, error) {
+	e, err := kt.GetExec(eid)
 	if err != nil {
 		return 0, 0, time.Time{}, err
 	}
 	if eid == "" {
 		// We are deleting the init exec. Forcibly exit any additional exec's.
-		ht.execs.Range(func(key, value interface{}) bool {
+		kt.execs.Range(func(key, value interface{}) bool {
 			ex := value.(shimExec)
 			if s := ex.State(); s != shimExecStateExited {
 				ex.ForceExit(ctx, 1)
@@ -341,19 +325,19 @@ func (ht *kryptonTask) DeleteExec(ctx context.Context, eid string) (int, uint32,
 	case shimExecStateCreated:
 		e.ForceExit(ctx, 0)
 	case shimExecStateRunning:
-		return 0, 0, time.Time{}, newExecInvalidStateError(ht.id, eid, state, "delete")
+		return 0, 0, time.Time{}, newExecInvalidStateError(kt.id, eid, state, "delete")
 	}
 	status := e.Status()
 	if eid != "" {
-		ht.execs.Delete(eid)
+		kt.execs.Delete(eid)
 	}
 
 	// Publish the deleted event
-	ht.events.publishEvent(
+	kt.events.publishEvent(
 		ctx,
 		runtime.TaskDeleteEventTopic,
 		&eventstypes.TaskDelete{
-			ContainerID: ht.id,
+			ContainerID: kt.id,
 			ID:          eid,
 			Pid:         status.Pid,
 			ExitStatus:  status.ExitStatus,
@@ -363,20 +347,20 @@ func (ht *kryptonTask) DeleteExec(ctx context.Context, eid string) (int, uint32,
 	return int(status.Pid), status.ExitStatus, status.ExitedAt, nil
 }
 
-func (ht *kryptonTask) Pids(ctx context.Context) ([]options.ProcessDetails, error) {
+func (kt *kryptonTask) Pids(ctx context.Context) ([]options.ProcessDetails, error) {
 	// Map all user created exec's to pid/exec-id
 	pidMap := make(map[int]string)
-	ht.execs.Range(func(key, value interface{}) bool {
+	kt.execs.Range(func(key, value interface{}) bool {
 		ex := value.(shimExec)
 		pidMap[ex.Pid()] = ex.ID()
 
 		// Iterate all
 		return false
 	})
-	pidMap[ht.init.Pid()] = ht.init.ID()
+	pidMap[kt.init.Pid()] = kt.init.ID()
 
 	// Get the guest pids
-	props, err := ht.c.Properties(ctx, schema1.PropertyTypeProcessList)
+	props, err := kt.c.Properties(ctx, schema1.PropertyTypeProcessList)
 	if err != nil {
 		return nil, err
 	}
@@ -400,51 +384,51 @@ func (ht *kryptonTask) Pids(ctx context.Context) ([]options.ProcessDetails, erro
 	return pairs, nil
 }
 
-func (ht *kryptonTask) Wait() *task.StateResponse {
-	<-ht.closed
-	return ht.init.Wait()
+func (kt *kryptonTask) Wait() *task.StateResponse {
+	<-kt.closed
+	return kt.init.Wait()
 }
 
-func (ht *kryptonTask) waitInitExit(destroyContainer bool) {
+func (kt *kryptonTask) waitInitExit(destroyContainer bool) {
 	ctx, span := trace.StartSpan(context.Background(), "kryptonTask::waitInitExit")
 	defer span.End()
-	span.AddAttributes(trace.StringAttribute("tid", ht.id))
+	span.AddAttributes(trace.StringAttribute("tid", kt.id))
 
 	// Wait for it to exit on its own
-	ht.init.Wait()
+	kt.init.Wait()
 
 	if destroyContainer {
 		// Close the host and event the exit
-		ht.close(ctx)
+		kt.close(ctx)
 	} else {
 		// Close the container's host, but do not close or terminate the container itself
-		ht.closeHost(ctx)
+		kt.closeHost(ctx)
 	}
 
 }
 
 // close shuts down the container that is owned by this task and if
-// `ht.ownsHost` will shutdown the hosting VM the container was placed in.
+// `kt.ownsHost` will shutdown the hosting VM the container was placed in.
 //
-// NOTE: For Windows process isolated containers `ht.ownsHost==true && ht.host
+// NOTE: For Windows process isolated containers `kt.ownsHost==true && kt.host
 // == nil`.
-func (ht *kryptonTask) close(ctx context.Context) {
-	ht.closeOnce.Do(func() {
+func (kt *kryptonTask) close(ctx context.Context) {
+	kt.closeOnce.Do(func() {
 		log.G(ctx).Debug("kryptonTask::closeOnce")
 
-		// ht.c should never be nil for a real task but in testing we stub
+		// kt.c should never be nil for a real task but in testing we stub
 		// this to avoid a nil dereference. We really should introduce a
-		// method or interface for ht.c operations that we can stub for
+		// method or interface for kt.c operations that we can stub for
 		// testing.
-		if ht.c != nil {
+		if kt.c != nil {
 			// Do our best attempt to tear down the container.
 			var werr error
 			ch := make(chan struct{})
 			go func() {
-				werr = ht.c.Wait()
+				werr = kt.c.Wait()
 				close(ch)
 			}()
-			err := ht.c.Shutdown(ctx)
+			err := kt.c.Shutdown(ctx)
 			if err != nil {
 				log.G(ctx).WithError(err).Error("failed to shutdown container")
 			} else {
@@ -462,7 +446,7 @@ func (ht *kryptonTask) close(ctx context.Context) {
 			}
 
 			if err != nil {
-				err = ht.c.Terminate(ctx)
+				err = kt.c.Terminate(ctx)
 				if err != nil {
 					log.G(ctx).WithError(err).Error("failed to terminate container")
 				} else {
@@ -483,17 +467,17 @@ func (ht *kryptonTask) close(ctx context.Context) {
 			// Release any resources associated with the container.
 			// TODO(pbozzay): Not sure what to do here.
 			/*
-				if err := resources.ReleaseResources(ctx, ht.cr, ht.host, true); err != nil {
+				if err := resources.ReleaseResources(ctx, kt.cr, kt.host, true); err != nil {
 					log.G(ctx).WithError(err).Error("failed to release container resources")
 				}
 			*/
 
 			// Close the container handle invalidating all future access.
-			if err := ht.c.Close(); err != nil {
+			if err := kt.c.Close(); err != nil {
 				log.G(ctx).WithError(err).Error("failed to close container")
 			}
 		}
-		ht.closeHost(ctx)
+		kt.closeHost(ctx)
 	})
 }
 
@@ -504,47 +488,46 @@ func (ht *kryptonTask) close(ctx context.Context) {
 // Note: If this is a process isolated task the hosting UVM is simply a `noop`.
 //
 // This call is idempotent and safe to call multiple times.
-// TODO(pbozzay): Is it ok to have this
-func (ht *kryptonTask) closeHost(ctx context.Context) {
-	ht.closeHostOnce.Do(func() {
+func (kt *kryptonTask) closeHost(ctx context.Context) {
+	kt.closeHostOnce.Do(func() {
 		log.G(ctx).Debug("kryptonTask::closeHostOnce")
 
 		// Send the `init` exec exit notification always.
-		exit := ht.init.Status()
-		ht.events.publishEvent(
+		exit := kt.init.Status()
+		kt.events.publishEvent(
 			ctx,
 			runtime.TaskExitEventTopic,
 			&eventstypes.TaskExit{
-				ContainerID: ht.id,
+				ContainerID: kt.id,
 				ID:          exit.ID,
 				Pid:         uint32(exit.Pid),
 				ExitStatus:  exit.ExitStatus,
 				ExitedAt:    exit.ExitedAt,
 			})
-		close(ht.closed)
+		close(kt.closed)
 	})
 }
 
-func (ht *kryptonTask) ExecInHost(ctx context.Context, req *shimdiag.ExecProcessRequest) (int, error) {
+func (kt *kryptonTask) ExecInHost(ctx context.Context, req *shimdiag.ExecProcessRequest) (int, error) {
 	/*
-		if ht.host == nil {
+		if kt.host == nil {
 			return cmd.ExecInShimHost(ctx, req)
 		}
-		return cmd.ExecInUvm(ctx, ht.host, req)
+		return cmd.ExecInUvm(ctx, kt.host, req)
 	*/
 	return -1, fmt.Errorf("ExecInHost is not implemented for Krypton containers")
 }
 
-func (ht *kryptonTask) DumpGuestStacks(ctx context.Context) string {
+func (kt *kryptonTask) DumpGuestStacks(ctx context.Context) string {
 	return ("DumpGuestStacks is not implemented for Krypton containers.")
 }
 
-func (ht *kryptonTask) Share(ctx context.Context, req *shimdiag.ShareRequest) error {
+func (kt *kryptonTask) Share(ctx context.Context, req *shimdiag.ShareRequest) error {
 	// TODO(pbozzay): Unsure what this should do when called.
-	return errTaskNotIsolated
+	return errors.New("Share API is not implemented for Krypton containers.")
 
 	/*
-		if ht.host == nil {
+		if kt.host == nil {
 			return errTaskNotIsolated
 		}
 		// For hyper-v isolated WCOW the task used isn't the standard kryptonTask so we
@@ -564,12 +547,11 @@ func (ht *kryptonTask) Share(ctx context.Context, req *shimdiag.ShareRequest) er
 			allowedNames = append(allowedNames, fileName)
 			restrictAccess = true
 		}
-		_, err = ht.host.AddPlan9(ctx, hostPath, req.UvmPath, req.ReadOnly, restrictAccess, allowedNames)
+		_, err = kt.host.AddPlan9(ctx, hostPath, req.UvmPath, req.ReadOnly, restrictAccess, allowedNames)
 		return err
 	*/
 }
 
-// TODO(pbozzay): Could remove this entirely?
 func kryptonPropertiesToWindowsStats(props *hcsschema.Properties) *stats.Statistics_Windows {
 	wcs := &stats.Statistics_Windows{Windows: &stats.WindowsContainerStatistics{}}
 	if props.Statistics != nil {
@@ -602,14 +584,14 @@ func kryptonPropertiesToWindowsStats(props *hcsschema.Properties) *stats.Statist
 	return wcs
 }
 
-func (ht *kryptonTask) Stats(ctx context.Context) (*stats.Statistics, error) {
+func (kt *kryptonTask) Stats(ctx context.Context) (*stats.Statistics, error) {
 	s := &stats.Statistics{}
-	props, err := ht.c.PropertiesV2(ctx, hcsschema.PTStatistics)
+	props, err := kt.c.PropertiesV2(ctx, hcsschema.PTStatistics)
 	if err != nil && !isStatsNotFound(err) {
 		return nil, err
 	}
 	if props != nil {
-		s.Container = hcsPropertiesToWindowsStats(props)
+		s.Container = kryptonPropertiesToWindowsStats(props)
 	}
 	return s, nil
 }
