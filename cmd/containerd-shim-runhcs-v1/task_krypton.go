@@ -17,6 +17,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 
+	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 
@@ -105,13 +106,28 @@ func newKryptonTask(
 				netNS = s.Windows.Network.NetworkNamespace
 			}
 		*/
-
 		// Create a krypton cow.Container but do not start it.
 		wcow, err = uvm.CreateWCOW(ctx, wopts)
 		if err != nil {
 			return nil, err
 		}
 		krypton = &uvm.KryptonContainer{UtilityVM: wcow}
+
+		log.G(ctx).WithFields(logrus.Fields{
+			"spec.network":    s.Windows.Network,
+			"spec.network.ns": s.Windows.Network.NetworkNamespace,
+		}).Debug("newKryptonTask: Network namespace setup...")
+
+		// Set up the network namespace.
+		if s.Windows != nil && s.Windows.Network != nil && s.Windows.Network.NetworkNamespace != "" {
+			log.G(ctx).Debug("newKryptonTask: Detected network NS request, setting it up!")
+			err = hcsoci.SetupNetworkNamespace(ctx, wcow, s.Windows.Network.NetworkNamespace)
+			if err != nil {
+				return nil, err
+			}
+
+			log.G(ctx).Debug("newKryptonTask: Network namespace setup COMPLETE!")
+		}
 
 		kt := &kryptonTask{
 			events:   events,
