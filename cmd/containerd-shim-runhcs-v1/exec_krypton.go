@@ -8,8 +8,10 @@ import (
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
+	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/signals"
+	"github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/osversion"
 	eventstypes "github.com/containerd/containerd/api/events"
 	containerd_v1_types "github.com/containerd/containerd/api/types/task"
@@ -33,6 +35,8 @@ func newKryptonExec(
 	c cow.Container,
 	id, bundle string,
 	spec *specs.Process,
+	s *specs.Spec,
+	uvm *uvm.UtilityVM,
 	io cmd.UpstreamIO) shimExec {
 	log.G(ctx).WithFields(logrus.Fields{
 		"tid":    tid,
@@ -47,6 +51,8 @@ func newKryptonExec(
 		id:          id,
 		bundle:      bundle,
 		spec:        spec,
+		s:           s,
+		uvm:         uvm,
 		io:          io,
 		processDone: make(chan struct{}),
 		state:       shimExecStateCreated,
@@ -85,6 +91,8 @@ type kryptonExec struct {
 	//
 	// This MUST be treated as read only in the lifetime of the exec.
 	spec *specs.Process
+	s    *specs.Spec
+	uvm  *uvm.UtilityVM
 	// io is the upstream io connections used for copying between the upstream
 	// io and the downstream io. The upstream IO MUST already be connected at
 	// create time in order to be valid.
@@ -176,6 +184,17 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 				ke.c.Close()
 			}
 		}()
+	}
+
+	// Set up the network namespace.
+	//
+	// TODO(pbozzay): Is it possible to do this before the container is started?
+	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
+		// Change the endpoint to use the default NIC.
+		err = hcsoci.SetupNetworkNamespace(ctx, ke.uvm, ke.s.Windows.Network.NetworkNamespace)
+		if err != nil {
+			return err
+		}
 	}
 
 	command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)

@@ -530,6 +530,7 @@ func getNetworkModifyRequest(adapterID string, requestType string, settings inte
 // addNIC adds a nic to the Utility VM.
 func (uvm *UtilityVM) addNIC(ctx context.Context, id string, endpoint *hns.HNSEndpoint) error {
 	// First a pre-add. This is a guest-only request and is only done on Windows.
+	endpoint.Namespace.ID = "00000000-0000-0000-0000-000000000000"
 	if uvm.operatingSystem == "windows" {
 		preAddRequest := hcsschema.ModifySettingRequest{
 			GuestRequest: guestrequest.GuestRequest{
