@@ -15,6 +15,8 @@ type PrototypeKryptonSandboxType bool
 // IsKryptonSandboxMode searches `a` for `key` and if found verifies that the
 // value is `true` or `false` in any case. If `key` is not found returns `def`.
 func IsKryptonSandboxMode(a map[string]string) (bool, error) {
+	return true, nil
+
 	if v, ok := a[PrototypeKryptonSandboxTypeAnnotation]; ok {
 		switch strings.ToLower(v) {
 		case "true":

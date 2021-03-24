@@ -444,14 +444,17 @@ func SpecToKryptonUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner st
 		return nil, errors.New("cannot create linux UVM opts for krypton spec")
 	} else if IsWCOW(s) {
 		wopts := uvm.NewDefaultOptionsWCOW(id, owner)
+		//wopts.MemorySizeInMB = ParseAnnotationsMemory(ctx, s, annotationMemorySizeInMB, wopts.MemorySizeInMB)
+		wopts.MemorySizeInMB = ParseAnnotationsMemory(ctx, s, annotationMemorySizeInMB, wopts.MemorySizeInMB) * 2
 		wopts.MemorySizeInMB = ParseAnnotationsMemory(ctx, s, annotationMemorySizeInMB, wopts.MemorySizeInMB)
 		wopts.LowMMIOGapInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationMemoryLowMMIOGapInMB, wopts.LowMMIOGapInMB)
 		wopts.HighMMIOBaseInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationMemoryHighMMIOBaseInMB, wopts.HighMMIOBaseInMB)
 		wopts.HighMMIOGapInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationMemoryHighMMIOGapInMB, wopts.HighMMIOGapInMB)
 		wopts.AllowOvercommit = parseAnnotationsBool(ctx, s.Annotations, annotationAllowOvercommit, wopts.AllowOvercommit)
 		wopts.EnableDeferredCommit = parseAnnotationsBool(ctx, s.Annotations, annotationEnableDeferredCommit, wopts.EnableDeferredCommit)
-		wopts.ProcessorCount = ParseAnnotationsCPUCount(ctx, s, annotationProcessorCount, wopts.ProcessorCount)
-		wopts.ProcessorLimit = ParseAnnotationsCPULimit(ctx, s, annotationProcessorLimit, wopts.ProcessorLimit)
+		//wopts.ProcessorCount = ParseAnnotationsCPUCount(ctx, s, annotationProcessorCount, wopts.ProcessorCount)
+		wopts.ProcessorCount = ParseAnnotationsCPUCount(ctx, s, annotationProcessorCount, wopts.ProcessorCount) * 2
+		//wopts.ProcessorLimit = ParseAnnotationsCPULimit(ctx, s, annotationProcessorLimit, wopts.ProcessorLimit)
 		wopts.ProcessorWeight = ParseAnnotationsCPUWeight(ctx, s, annotationProcessorWeight, wopts.ProcessorWeight)
 		wopts.StorageQoSBandwidthMaximum = ParseAnnotationsStorageBps(ctx, s, annotationStorageQoSBandwidthMaximum, wopts.StorageQoSBandwidthMaximum)
 		wopts.StorageQoSIopsMaximum = ParseAnnotationsStorageIops(ctx, s, annotationStorageQoSIopsMaximum, wopts.StorageQoSIopsMaximum)

@@ -20,8 +20,6 @@ import (
 // doing basic bookkeeping for its pool of tasks, and exposing an interface to
 // create or destroy workload containers.
 func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTaskRequest, s *specs.Spec) (shimPod, error) {
-	log.G(ctx).Debug("createKryptonPod called")
-
 	if osversion.Get().Build < osversion.V20H1 {
 		return nil, errors.Wrapf(errdefs.ErrFailedPrecondition, "Krypton pod support is not available on Windows versions previous to 20H1(%d)", osversion.RS5)
 	}
@@ -30,13 +28,6 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 		events: events,
 		id:     req.ID,
 	}
-
-	//
-	// I am not sure if we are able to keep the compartment open some other way.
-	// For this prototype we can have Krypton task per pod I think; but longer
-	// term we need a real way to hold the network namespace open so it can be
-	// shared among all the tasks.
-	//
 
 	// Create a dummy sandbox task. This is used to signal that the sandbox process
 	// is alive and well.

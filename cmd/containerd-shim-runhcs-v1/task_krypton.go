@@ -41,12 +41,6 @@ func newKryptonTask(
 
 	owner := filepath.Base(os.Args[0])
 
-	log.G(ctx).WithFields(logrus.Fields{
-		"tid":   req.ID,
-		"owner": owner,
-		"spec":  s,
-	}).Debug("newKryptonTask")
-
 	// Rigkt now this will look at the metadata rather than the OCI spec to get container
 	// parameters for the UVM.
 	//
@@ -85,12 +79,6 @@ func newKryptonTask(
 		}
 		layers[layersLen-1] = vmPath
 		wopts.LayerFolders = layers
-
-		log.G(ctx).WithFields(logrus.Fields{
-			"tid":    req.ID,
-			"vmPath": vmPath,
-			"spec":   s,
-		}).Debug("newKryptonTask:SetPath to new location(currently expecting \\vm")
 
 		io, err := cmd.NewNpipeIO(ctx, req.Stdin, req.Stdout, req.Stderr, req.Terminal)
 		if err != nil {
