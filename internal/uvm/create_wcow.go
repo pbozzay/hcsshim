@@ -92,15 +92,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	// Align the requested memory size.
 	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
 
-	/*
-		mappedDirectory := &hcsschema.MappedDirectory{
-			HostPath:      "C:\\test",
-			ContainerPath: "C:\\test",
-			ReadOnly:      false,
-		}
-	*/
-
-	log.G(ctx).Debug(fmt.Sprintf("PBOZZA: Mounting VSMB share to %s:Files\\Files", uvmFolder))
+	log.G(ctx).Debug(fmt.Sprintf("[PBOZZA]: Mounting VSMB share to %s:Files\\Files", uvmFolder))
 
 	// UVM rootfs share is readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
@@ -326,30 +318,6 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		uvm.IsClone = true
 		uvm.TemplateID = opts.TemplateConfig.UVMID
 	}
-
-	//=========================
-
-	// Add a VSMB share to the doc so that the container is born with it.
-	options := uvm.DefaultVSMBOptions(true)
-	doc.VirtualMachine.Devices.VirtualSmb.Shares = append(doc.VirtualMachine.Devices.VirtualSmb.Shares, hcsschema.VirtualSmbShare{
-		Name:    "paul",
-		Path:    "C:\\containerlogs",
-		Options: options,
-	})
-
-	testVSMB := &VSMBShare{
-		vm:        uvm,
-		HostPath:  "C:\\containerlogs",
-		refCount:  1,
-		name:      "paul",
-		options:   *options,
-		guestPath: "C:\\containerlogs", // Might need to calculate guest path
-	}
-	uvm.vsmbCounter++
-
-	uvm.vsmbDirShares[testVSMB.HostPath] = testVSMB
-
-	//===========================
 
 	// Add appropriate VSMB share options if this UVM needs to be saved as a template
 	if opts.IsTemplate {
