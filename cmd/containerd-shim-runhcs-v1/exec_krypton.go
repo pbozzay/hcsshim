@@ -186,16 +186,27 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		}()
 	}
 
-	// Set up the network namespace.
+	// Set up the network namespace. Change the endpoint to use the default NIC.
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
-		// Change the endpoint to use the default NIC.
 		err = hcsoci.SetupNetworkNamespace(ctx, ke.uvm, ke.s.Windows.Network.NetworkNamespace)
 		if err != nil {
 			return err
 		}
 	}
+
+	// Set up any requested network shares. This is done after the container is
+	// started (because GCS must set up BindFlt mappings in the guest) but before
+	// the init process is run.
+	err = ke.uvm.Share(ctx, "C:\\test1", "C:\\test1", false)
+	if err != nil {
+		return err
+	}
+
+	// Have to do this after the UVM is started...
+	//options := ke.uvm.DefaultVSMBOptions(false)
+	//ke.uvm.AddVSMB(ctx, "C:\\test", options)
 
 	command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)
 	command.Spec.User.Username = `NT AUTHORITY\SYSTEM`

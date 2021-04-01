@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ func newKryptonTask(
 
 	owner := filepath.Base(os.Args[0])
 
-	// Rigkt now this will look at the metadata rather than the OCI spec to get container
+	// Right now this will look at the metadata rather than the OCI spec to get container
 	// parameters for the UVM.
 	//
 	// TODO(pbozzay): Create a version of this function that can take a spec and convert the
@@ -60,14 +61,12 @@ func newKryptonTask(
 	case *uvm.OptionsWCOW:
 		wopts := (opts).(*uvm.OptionsWCOW)
 
+		sJson, _ := json.Marshal(s)
+		log.G(ctx).WithFields(logrus.Fields{"spec": sJson}).Debug("[PBOZZA]")
+
 		// In order for the UVM sandbox.vhdx not to collide with the actual
 		// nested Argon sandbox.vhdx we append the \vm folder to the last
 		// entry in the list.
-		log.G(ctx).WithFields(logrus.Fields{
-			"LAYERS": s.Windows.LayerFolders,
-			"spec":   s,
-		}).Debug("PBOZZA: Layers were...")
-
 		layersLen := len(s.Windows.LayerFolders)
 		layers := make([]string, layersLen)
 		copy(layers, s.Windows.LayerFolders)
@@ -85,19 +84,12 @@ func newKryptonTask(
 			return nil, err
 		}
 
-		// This is pulled from the Argon newHcsTask function. It needs to be ported to Krypton.
-		/*
-			var netNS string
-			if s.Windows != nil &&
-				s.Windows.Network != nil {
-				netNS = s.Windows.Network.NetworkNamespace
-			}
-		*/
 		// Create a krypton cow.Container but do not start it.
 		wcow, err = uvm.CreateWCOW(ctx, wopts)
 		if err != nil {
 			return nil, err
 		}
+
 		krypton = &uvm.KryptonContainer{UtilityVM: wcow}
 
 		kt := &kryptonTask{
@@ -208,7 +200,6 @@ func (kt *kryptonTask) ID() string {
 	return kt.id
 }
 
-// TODO(pbozzay): Implement this.
 func (kt *kryptonTask) CreateExec(ctx context.Context, req *task.ExecProcessRequest, spec *specs.Process) error {
 	kt.ecl.Lock()
 	defer kt.ecl.Unlock()
