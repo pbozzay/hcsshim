@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,9 +59,6 @@ func newKryptonTask(
 		return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "Krypton tasks are not supported for LCOW.")
 	case *uvm.OptionsWCOW:
 		wopts := (opts).(*uvm.OptionsWCOW)
-
-		sJson, _ := json.Marshal(s)
-		log.G(ctx).WithFields(logrus.Fields{"spec": sJson}).Debug("[PBOZZA]")
 
 		// In order for the UVM sandbox.vhdx not to collide with the actual
 		// nested Argon sandbox.vhdx we append the \vm folder to the last

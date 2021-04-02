@@ -164,14 +164,17 @@ func (ke *kryptonExec) Status() *task.StateResponse {
 func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bool) (err error) {
 	ke.sl.Lock()
 	defer ke.sl.Unlock()
+
 	if ke.state != shimExecStateCreated {
 		return newExecInvalidStateError(ke.tid, ke.id, ke.state, "start")
 	}
+
 	defer func() {
 		if err != nil {
 			ke.exitFromCreatedL(ctx, 1)
 		}
 	}()
+
 	// The container may need to be started
 	if initializeContainer {
 		err = ke.c.Start(ctx)
@@ -196,17 +199,27 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		}
 	}
 
-	// Set up any requested network shares. This is done after the container is
-	// started (because GCS must set up BindFlt mappings in the guest) but before
-	// the init process is run.
-	err = ke.uvm.Share(ctx, "C:\\test1", "C:\\test1", false)
-	if err != nil {
-		return err
-	}
+	// Set up any requested folder mounts. This is done after the container is
+	// started because GCS must set up BindFlt mappings in the guest. However it must
+	// be completed before the init process is started so that dependent workloads do
+	// not race with folder mount.
+	for _, m := range ke.s.Mounts {
 
-	// Have to do this after the UVM is started...
-	//options := ke.uvm.DefaultVSMBOptions(false)
-	//ke.uvm.AddVSMB(ctx, "C:\\test", options)
+		// Mount options are fstab-formatted. Search the list for read only tags.
+		readOnly := false
+		for _, m := range m.Options {
+			if m == "ro" {
+				readOnly = true
+				break
+			}
+		}
+
+		// Add the mount.
+		err = ke.uvm.Share(ctx, m.Source, m.Destination, readOnly)
+		if err != nil {
+			return err
+		}
+	}
 
 	command := cmd.CommandContext(ctx, ke.c, ke.spec.Args[0], ke.spec.Args[1:]...)
 	command.Spec.User.Username = `NT AUTHORITY\SYSTEM`
