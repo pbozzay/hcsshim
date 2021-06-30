@@ -8,7 +8,6 @@ import (
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
-	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/signals"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -193,7 +192,7 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
-		err = hcsoci.SetupNetworkNamespace(ctx, ke.uvm, ke.s.Windows.Network.NetworkNamespace)
+		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
 		if err != nil {
 			return err
 		}

@@ -31,7 +31,8 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 
 	// Create a dummy sandbox task. This is used to signal that the sandbox process
 	// is alive and well.
-	p.sandboxTask = newWcowPodSandboxTask(ctx, events, req.ID, req.Bundle, nil)
+	// Settings nsid as "" due to having a nil parent
+	p.sandboxTask = newWcowPodSandboxTask(ctx, events, req.ID, req.Bundle, nil, "")
 
 	// Publish the created event. We only do this for a fake WCOW task. A
 	// HCS Task will event itself based on actual process lifetime.

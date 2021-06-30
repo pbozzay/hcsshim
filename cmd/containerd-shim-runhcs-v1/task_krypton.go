@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
+	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"os"
 	"path/filepath"
 	"sync"
@@ -26,8 +28,6 @@ import (
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/schema1"
-	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 )
 
@@ -570,4 +570,9 @@ func (kt *kryptonTask) Stats(ctx context.Context) (*stats.Statistics, error) {
 		s.Container = kryptonPropertiesToWindowsStats(props)
 	}
 	return s, nil
+}
+
+// Update updates a task's container
+func (kt *kryptonTask) Update(_ context.Context, _ *task.UpdateTaskRequest) error {
+	return errors.New("Method not implemented")
 }

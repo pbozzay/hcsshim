@@ -104,7 +104,6 @@ func (s *service) Create(ctx context.Context, req *task.CreateTaskRequest) (resp
 }
 
 func (s *service) Start(ctx context.Context, req *task.StartRequest) (resp *task.StartResponse, err error) {
-	log.G(ctx).Debug("PBOZZAY: Start called in service")
 
 	ctx, span := trace.StartSpan(ctx, "Start")
 	defer span.End()
