@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	runhcsopts "github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
-	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 	containerd_v1_types "github.com/containerd/containerd/api/types/task"
@@ -71,8 +70,6 @@ func (s *service) stateInternal(ctx context.Context, req *task.StateRequest) (*t
 
 func (s *service) createInternal(ctx context.Context, req *task.CreateTaskRequest) (*task.CreateTaskResponse, error) {
 	setupDebuggerEvent()
-
-	log.G(ctx).Debug("Step 0")
 
 	var shimOpts *runhcsopts.Options
 	if req.Options != nil {
@@ -151,17 +148,13 @@ func (s *service) createInternal(ctx context.Context, req *task.CreateTaskReques
 		return nil, errors.Wrap(errdefs.ErrFailedPrecondition, "if using terminal, stderr must be empty")
 	}
 
-	log.G(ctx).Debug("PBOZZAY: createInternal called")
 	resp := &task.CreateTaskResponse{}
 	s.cl.Lock()
 	if s.isSandbox {
 		pod, err := s.getPod()
-		log.G(ctx).Debug("Step 2")
 		if err == nil {
 			// The POD sandbox was previously created. Unlock and forward to the POD
-			log.G(ctx).Debug("PBOZZAY: retrieving existing pod...")
 			s.cl.Unlock()
-			log.G(ctx).Debug("PBOZZAY: Creating task/workload container...")
 			t, err := pod.CreateTask(ctx, req, &spec)
 			if err != nil {
 				return nil, err
@@ -179,7 +172,6 @@ func (s *service) createInternal(ctx context.Context, req *task.CreateTaskReques
 		}
 
 		if isKryptonPod {
-			log.G(ctx).Debug("PBOZZAY: Creating a Krypton Pod.")
 			pod, err := createKryptonPod(ctx, s.events, req, &spec)
 			if err != nil {
 				s.cl.Unlock()

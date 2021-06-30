@@ -9,9 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	// TODO(pbozzay): REMOVE
-	"github.com/Microsoft/hcsshim/internal/log"
-
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/shimdiag"
 	"github.com/containerd/containerd/errdefs"
@@ -77,9 +74,6 @@ func (s *service) State(ctx context.Context, req *task.StateRequest) (resp *task
 
 func (s *service) Create(ctx context.Context, req *task.CreateTaskRequest) (resp *task.CreateTaskResponse, err error) {
 	ctx, span := trace.StartSpan(ctx, "Create")
-
-	log.G(ctx).Debug("PBOZZAY: Create called in service")
-	log.G(ctx).Debug(req)
 
 	defer span.End()
 	defer func() {
