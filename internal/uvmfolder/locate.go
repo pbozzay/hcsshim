@@ -24,7 +24,7 @@ func LocateUVMFolder(ctx context.Context, layerFolders []string) (string, error)
 	var uvmFolder string
 	index := 0
 	for _, layerFolder := range layerFolders {
-		_, err := os.Stat(filepath.Join(layerFolder, `UtilityVM`))
+		_, err := os.Stat(filepath.Join(layerFolder, `Files`))
 		if err == nil {
 			uvmFolder = layerFolder
 			break

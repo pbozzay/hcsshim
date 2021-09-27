@@ -101,7 +101,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			{
 				// TODO(pbozzay): Change this folder path to Files\Files.
 				Name:    "os",
-				Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
+				Path:    filepath.Join(uvmFolder, `Files\Files`),
 				Options: vsmbOpts,
 			},
 		},

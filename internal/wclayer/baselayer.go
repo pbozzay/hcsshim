@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"syscall"
 
 	"github.com/Microsoft/go-winio"
@@ -81,9 +80,9 @@ func (w *baseLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo) (err e
 		return err
 	}
 
-	if filepath.ToSlash(name) == `UtilityVM/Files` {
+	//if filepath.ToSlash(name) == `UtilityVM/Files` {
 		w.hasUtilityVM = true
-	}
+	//}
 
 	var f *os.File
 	defer func() {
@@ -162,21 +161,22 @@ func (w *baseLayerWriter) Close() (err error) {
 			return err
 		}
 
-		err = ProcessBaseLayer(w.ctx, w.root.Name())
+		//err = ProcessBaseLayer(w.ctx, w.root.Name())
+		err = ProcessUtilityVMImage(w.ctx, w.root.Name())
 		if err != nil {
 			return err
 		}
 
-		if w.hasUtilityVM {
-			err := safefile.EnsureNotReparsePointRelative("UtilityVM", w.root)
+		//if w.hasUtilityVM {
+			/*err := safefile.EnsureNotReparsePointRelative("Files", w.root)
 			if err != nil {
 				return err
 			}
-			err = ProcessUtilityVMImage(w.ctx, filepath.Join(w.root.Name(), "UtilityVM"))
+			err = ProcessUtilityVMImage(w.ctx, filepath.Join(w.root.Name(), "Files"))
 			if err != nil {
 				return err
-			}
-		}
+			}*/
+		//}
 	}
 	return w.err
 }
