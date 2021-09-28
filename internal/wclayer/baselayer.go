@@ -24,6 +24,7 @@ type baseLayerWriter struct {
 	bw           *winio.BackupFileWriter
 	err          error
 	hasUtilityVM bool
+	hasFilesDir  bool
 	dirInfo      []dirInfo
 }
 
@@ -83,6 +84,10 @@ func (w *baseLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo) (err e
 
 	if filepath.ToSlash(name) == `UtilityVM/Files` {
 		w.hasUtilityVM = true
+	}
+	
+	if filepath.ToSlash(name) == `Files` {
+		w.hasFilesDir = true
 	}
 
 	var f *os.File
@@ -162,9 +167,12 @@ func (w *baseLayerWriter) Close() (err error) {
 			return err
 		}
 
-		err = ProcessBaseLayer(w.ctx, w.root.Name())
-		if err != nil {
-			return err
+		// Lack of one indicates Krypton
+		if w.hasFilesDir {
+			err = ProcessBaseLayer(w.ctx, w.root.Name())
+			if err != nil {
+				return err
+			}
 		}
 
 		if w.hasUtilityVM {
