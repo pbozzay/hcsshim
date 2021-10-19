@@ -39,6 +39,7 @@ func newKryptonExec(
 	spec *specs.Process,
 	s *specs.Spec,
 	uvm *uvm.UtilityVM,
+	network	*hcsshim.HNSNetwork,
 	io cmd.UpstreamIO) shimExec {
 	log.G(ctx).WithFields(logrus.Fields{
 		"tid":    tid,
@@ -55,6 +56,7 @@ func newKryptonExec(
 		spec:        spec,
 		s:           s,
 		uvm:         uvm,
+		network:     network,
 		io:          io,
 		processDone: make(chan struct{}),
 		state:       shimExecStateCreated,
@@ -95,6 +97,7 @@ type kryptonExec struct {
 	spec *specs.Process
 	s    *specs.Spec
 	uvm  *uvm.UtilityVM
+	network *hcsshim.HNSNetwork
 	// io is the upstream io connections used for copying between the upstream
 	// io and the downstream io. The upstream IO MUST already be connected at
 	// create time in order to be valid.
@@ -195,25 +198,6 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
-		netName, err := guid.NewV4()
-		if err != nil {
-			return err
-		}
-		network := &hcsshim.HNSNetwork{
-			Type: "NAT",
-			Name: netName.String(),
-			Subnets: []hcsshim.Subnet{
-				{
-					AddressPrefix:  "192.168.100.0/24",
-					GatewayAddress: "192.168.100.1",
-				},
-			},
-		}
-
-		network, err = network.Create()
-		if err != nil {
-			return err
-		}
 		name, err := guid.NewV4()
 		if err != nil {
 			return err
@@ -222,10 +206,11 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 			Name: name.String(),
 		}
 
-		Endpoint, err = network.CreateEndpoint(Endpoint)
+		Endpoint, err = ke.network.CreateEndpoint(Endpoint)
 		if err != nil {
 			return err
 		}
+		log.G(ctx).Debug("KryptonExec::Created Network Endpoint")
 		nicId, err := guid.NewV4()
 		if err != nil {
 			return (err)
@@ -235,6 +220,7 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		if err != nil {
 			return (err)
 		}
+		log.G(ctx).Debug("KryptonExec::Added Network Endpoint to Guest")
 		/*
 		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
 		if err != nil {
