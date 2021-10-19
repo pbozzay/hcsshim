@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim"
+
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
@@ -192,10 +195,52 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
+		netName, err := guid.NewV4()
+		if err != nil {
+			return err
+		}
+		network := &hcsshim.HNSNetwork{
+			Type: "NAT",
+			Name: netName.String(),
+			Subnets: []hcsshim.Subnet{
+				{
+					AddressPrefix:  "192.168.100.0/24",
+					GatewayAddress: "192.168.100.1",
+				},
+			},
+		}
+
+		network, err = network.Create()
+		if err != nil {
+			return err
+		}
+		name, err := guid.NewV4()
+		if err != nil {
+			return err
+		}
+		Endpoint := &hcsshim.HNSEndpoint{
+			Name: name.String(),
+		}
+
+		Endpoint, err = network.CreateEndpoint(Endpoint)
+		if err != nil {
+			return err
+		}
+		nicId, err := guid.NewV4()
+		if err != nil {
+			return (err)
+		}
+		Endpoint.Namespace = &hcsshim.Namespace{}
+		err = ke.uvm.AddNIC(ctx, nicId.String(), Endpoint)
+		if err != nil {
+			return (err)
+		}
+		/*
 		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
 		if err != nil {
 			return err
 		}
+		*/
 	}
 
 	// Set up any requested folder mounts. This is done after the container is
