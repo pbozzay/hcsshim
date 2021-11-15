@@ -5,6 +5,7 @@ import (
 	"sync"
 	"math/rand"
 	"strconv"
+	"time"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim"
@@ -61,6 +62,8 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 	if err != nil {
 		return nil, err
 	}
+
+	rand.Seed(time.Now().UnixNano())
 
 	class_c_net := strconv.Itoa(rand.Intn(255))
 	network := &hcsshim.HNSNetwork{
