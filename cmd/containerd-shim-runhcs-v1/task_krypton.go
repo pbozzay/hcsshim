@@ -74,6 +74,7 @@ func newKryptonTask(
 		}
 		layers[layersLen-1] = vmPath
 		wopts.LayerFolders = layers
+		wopts.IsKrypton = true
 
 		io, err := cmd.NewNpipeIO(ctx, req.Stdin, req.Stdout, req.Stderr, req.Terminal)
 		if err != nil {
