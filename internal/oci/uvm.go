@@ -464,6 +464,7 @@ func SpecToKryptonUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner st
 		if err := handleCloneAnnotations(ctx, s.Annotations, wopts); err != nil {
 			return nil, err
 		}
+		wopts.IsKrypton = true
 		return wopts, nil
 	}
 	return nil, errors.New("cannot create UVM opts spec is not LCOW or WCOW")
