@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/Microsoft/hcsshim/internal/hns"
 	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"os"
@@ -37,6 +38,7 @@ import (
 func newKryptonTask(
 	ctx context.Context,
 	events publisher,
+	network	*hns.HNSNetwork,
 	req *task.CreateTaskRequest,
 	s *specs.Spec) (_ shimTask, err error) {
 
@@ -111,6 +113,7 @@ func newKryptonTask(
 			s.Process,
 			s,
 			wcow,
+			network,
 			io,
 		)
 
@@ -600,11 +603,9 @@ func saveAsKryptonTemplate(ctx context.Context, templateTask *kryptonTask) (err 
 	var utc *uvm.UVMTemplateConfig
 	var templateConfig *clone.TemplateConfig
 
-	/*
 	if err = templateTask.uvm.RemoveAllNICs(ctx); err != nil {
 		return err
 	}
-	*/
 
 	if err = templateTask.uvm.CloseGCSConnection(); err != nil {
 		return err
