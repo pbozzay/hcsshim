@@ -24,6 +24,7 @@ import (
 
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
 	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/stats"
+	"github.com/Microsoft/hcsshim/internal/clone"
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
@@ -46,7 +47,9 @@ func newKryptonTask(
 	//
 	// TODO(pbozzay): Create a version of this function that can take a spec and convert the
 	// 				  container portion of the request to a UVM spec.
+	log.G(ctx).Debugf("Logging Spec : %v", s)
 	opts, err := oci.SpecToKryptonUVMCreateOpts(ctx, s, fmt.Sprintf("%s@vm", req.ID), owner)
+	log.G(ctx).Debugf("Logging Opts : %v", opts)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +95,7 @@ func newKryptonTask(
 			events:   events,
 			id:       req.ID,
 			c:        krypton,
+			uvm:      wcow,
 			closed:   make(chan struct{}),
 			taskSpec: s,
 		}
@@ -115,7 +119,7 @@ func newKryptonTask(
 		// happen when we are creating a template and want to wait for init process
 		// to finish before we save the template. In such cases do not tear down the
 		// container after init exits - because we need the container in the template
-		go kt.waitInitExit(true)
+		go kt.waitInitExit(!kt.uvm.IsTemplate)
 
 		// Publish the created event
 		kt.events.publishEvent(
@@ -156,6 +160,8 @@ type kryptonTask struct {
 	// It MUST be treated as read only in the lifetime of this task EXCEPT after
 	// a Kill to the init task in which it must be shutdown.
 	c cow.Container
+
+	uvm *uvm.UtilityVM
 	// cr is the container resources this task is holding.
 	//
 	// It MUST be treated as read only in the lifetime of this task EXCEPT after
@@ -370,15 +376,28 @@ func (kt *kryptonTask) waitInitExit(destroyContainer bool) {
 	defer span.End()
 	span.AddAttributes(trace.StringAttribute("tid", kt.id))
 
+	log.G(ctx).Debug("kryptonTask::startingWait")
 	// Wait for it to exit on its own
 	kt.init.Wait()
 
+	log.G(ctx).Debug("kryptonTask::aboutToDestroy")
 	if destroyContainer {
 		// Close the host and event the exit
+		log.G(ctx).Debug("Destroying Container")
 		kt.close(ctx)
 	} else {
+		log.G(ctx).Debug("Not Destroying Container")
 		// Close the container's host, but do not close or terminate the container itself
 		kt.closeHost(ctx)
+	}
+
+	log.G(ctx).Debug("Attempting to save as template")
+	if kt.uvm.IsTemplate {
+		log.G(ctx).Debug("Is saving as template")
+		// Save the host as a template
+		if err := saveAsKryptonTemplate(ctx, kt); err != nil {
+			log.G(ctx).WithError(err).Error("failed to save as template")
+		}
 	}
 
 }
@@ -575,4 +594,41 @@ func (kt *kryptonTask) Stats(ctx context.Context) (*stats.Statistics, error) {
 // Update updates a task's container
 func (kt *kryptonTask) Update(_ context.Context, _ *task.UpdateTaskRequest) error {
 	return errors.New("Method not implemented")
+}
+
+func saveAsKryptonTemplate(ctx context.Context, templateTask *kryptonTask) (err error) {
+	var utc *uvm.UVMTemplateConfig
+	var templateConfig *clone.TemplateConfig
+
+	/*
+	if err = templateTask.uvm.RemoveAllNICs(ctx); err != nil {
+		return err
+	}
+	*/
+
+	if err = templateTask.uvm.CloseGCSConnection(); err != nil {
+		return err
+	}
+
+	utc, err = templateTask.uvm.GenerateTemplateConfig()
+	if err != nil {
+		return err
+	}
+
+	templateConfig = &clone.TemplateConfig{
+		TemplateUVMID:         utc.UVMID,
+		TemplateUVMResources:  utc.Resources,
+		TemplateUVMCreateOpts: utc.CreateOpts,
+		TemplateContainerID:   templateTask.id,
+		TemplateContainerSpec: *templateTask.taskSpec,
+	}
+
+	if err = clone.SaveTemplateConfig(ctx, templateConfig); err != nil {
+		return err
+	}
+
+	if err = templateTask.uvm.SaveAsTemplate(ctx); err != nil {
+		return err
+	}
+	return nil
 }

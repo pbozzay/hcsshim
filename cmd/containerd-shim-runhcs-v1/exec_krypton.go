@@ -191,12 +191,14 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	// Set up the network namespace. Change the endpoint to use the default NIC.
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
+	// TODO(kritr): Enable Networking for clone scenario (?)
+	/*
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
 		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
 		if err != nil {
 			return err
 		}
-	}
+	}*/
 
 	// Set up any requested folder mounts. This is done after the container is
 	// started because GCS must set up BindFlt mappings in the guest. However it must
