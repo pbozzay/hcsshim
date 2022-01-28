@@ -4,9 +4,11 @@ import (
 	"context"
 	"sync"
 	"time"
+	"math/rand"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 
+	"github.com/Microsoft/hcsshim/hcn"
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
@@ -199,34 +201,82 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	// TODO(kritr): Enable Networking for clone scenario (?)
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
-		name, err := guid.NewV4()
+
+	  rand.Seed(time.Now().UnixNano())
+
+		namespace := &hcn.HostComputeNamespace{
+			Type:        hcn.NamespaceTypeHostDefault,
+			NamespaceId: rand.Uint32(),
+			SchemaVersion: hcn.SchemaVersion{
+				Major: 2,
+				Minor: 0,
+			},
+		}
+
+		namespace, err = namespace.Create()
 		if err != nil {
 			return err
 		}
+		nsid := namespace.Id
+
+		endpointID, err := guid.NewV4()
+		if err != nil {
+			return err
+		}
+
 		Endpoint := &hns.HNSEndpoint{
-			Name: name.String(),
+			Name: endpointID.String(),
 		}
 
 		Endpoint, err = ke.network.CreateEndpoint(Endpoint)
+		Endpoint.Namespace = &hns.Namespace{}
 		if err != nil {
 			return err
 		}
+
+		/*
+		err = hns.AddNamespaceEndpoint(nsid, Endpoint.Id)
+		if err != nil {
+			return err
+		}
+		*/
+
 		log.G(ctx).Debug("KryptonExec::Created Network Endpoint")
+
 		/*
 		nicId, err := guid.NewV4()
 		if err != nil {
 			return (err)
 		}
-		*/
+
 		Endpoint.Namespace = &hns.Namespace{}
 		err = ke.uvm.AddNIC(ctx, ke.tid + "NIC", Endpoint)
 		if err != nil {
 			return (err)
 		}
 		log.G(ctx).Debug("KryptonExec::Added Network Endpoint to Guest")
-		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
+		*/
+
+		endpoints := []*hns.HNSEndpoint{Endpoint}
+	  /*
+		endpoints, err := uvm.GetNamespaceEndpoints(ctx, nsid)
 		if err != nil {
 			return err
+		} 
+		*/
+
+		if !ke.uvm.IsClone {
+			if err = ke.uvm.AddNetNSByID(ctx, nsid); err != nil {
+				return errors.Wrapf(err, "Couldn't add Namespace by ID")
+			}
+	  }
+
+		if err = ke.uvm.AddEndpointsToNS(ctx, nsid, endpoints); err != nil {
+			// Best effort clean up the NS
+			if removeErr := ke.uvm.RemoveNetNS(ctx, nsid); removeErr != nil {
+				log.G(ctx).Warn(removeErr)
+			}
+			return errors.Wrapf(err, "Couldn't add Endpoints to Namespace")
 		}
 	}
 
