@@ -229,10 +229,10 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		}
 
 		Endpoint, err = ke.network.CreateEndpoint(Endpoint)
-		Endpoint.Namespace = &hns.Namespace{}
 		if err != nil {
 			return err
 		}
+		Endpoint.Namespace = &hns.Namespace{}
 
 		/*
 		err = hns.AddNamespaceEndpoint(nsid, Endpoint.Id)
@@ -257,7 +257,7 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		log.G(ctx).Debug("KryptonExec::Added Network Endpoint to Guest")
 		*/
 
-		endpoints := []*hns.HNSEndpoint{Endpoint}
+    endpoints := []*hns.HNSEndpoint{Endpoint}
 	  /*
 		endpoints, err := uvm.GetNamespaceEndpoints(ctx, nsid)
 		if err != nil {
@@ -265,6 +265,7 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 		} 
 		*/
 
+		/*
 		if !ke.uvm.IsClone {
 			if err = ke.uvm.AddNetNSByID(ctx, nsid); err != nil {
 				return errors.Wrapf(err, "Couldn't add Namespace by ID")
@@ -277,6 +278,51 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 				log.G(ctx).Warn(removeErr)
 			}
 			return errors.Wrapf(err, "Couldn't add Endpoints to Namespace")
+		}
+		*/
+		nsidInsideUVM := nsid
+		if ke.uvm.IsTemplate || ke.uvm.IsClone {
+			nsidInsideUVM = uvm.DEFAULT_CLONE_NETWORK_NAMESPACE_ID
+		}
+
+
+		// Add the network namespace inside the UVM if it is not a clone. (Clones will
+		// inherit the namespace from template)
+		if !ke.uvm.IsClone {
+			// Get the namespace struct from the actual nsid.
+			hcnNamespace, err := hcn.GetNamespaceByID(nsid)
+			if err != nil {
+				return err
+			}
+
+			// All templates should have a special NSID so that it
+			// will be easier to debug. Override it here.
+			if ke.uvm.IsTemplate {
+				hcnNamespace.Id = nsidInsideUVM
+			}
+
+			if err = ke.uvm.AddNetNS(ctx, hcnNamespace); err != nil {
+				return err
+			}
+		}
+
+		// If adding a network endpoint to clones or a template override nsid associated
+		// with it.
+		if ke.uvm.IsClone || ke.uvm.IsTemplate {
+			// replace nsid for each endpoint
+			for _, ep := range endpoints {
+				ep.Namespace = &hns.Namespace{
+					ID: nsidInsideUVM,
+				}
+			}
+		}
+
+		if err = ke.uvm.AddEndpointsToNS(ctx, nsidInsideUVM, endpoints); err != nil {
+			// Best effort clean up the NS
+			if removeErr := ke.uvm.RemoveNetNS(ctx, nsidInsideUVM); removeErr != nil {
+				log.G(ctx).Warn(removeErr)
+			}
+			return err
 		}
 	}
 
