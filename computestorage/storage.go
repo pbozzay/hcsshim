@@ -47,4 +47,5 @@ type OsLayerOptions struct {
 	Type                       OsLayerType `json:"Type,omitempty"`
 	DisableCiCacheOptimization bool        `json:"DisableCiCacheOptimization,omitempty"`
 	SkipUpdateBcdForBoot       bool        `json:"SkipUpdateBcdForBoot,omitempty"`
+	SkipSandboxPreExpansion    bool        `json:"SkipSandboxPreExpansion,omitempty"`
 }

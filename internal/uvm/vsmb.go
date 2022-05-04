@@ -79,7 +79,7 @@ func (uvm *UtilityVM) SetSaveableVSMBOptions(opts *hcsschema.VirtualSmbShareOpti
 	}
 	opts.NoLocks = true
 	opts.PseudoDirnotify = true
-	opts.NoDirectmap = true
+	// opts.NoDirectmap = true
 }
 
 // findVSMBShare finds a share by `hostPath`. If not found returns `ErrNotAttached`.

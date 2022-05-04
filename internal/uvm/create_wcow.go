@@ -94,7 +94,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	uvm.processorCount = uvm.normalizeProcessorCount(ctx, opts.ProcessorCount, processorTopology)
 
 	// Align the requested memory size.
-	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
+	// memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
 
 	vsmbFolder := filepath.Join(uvmFolder, `UtilityVM\Files`)
 
@@ -106,7 +106,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
 	virtualSMB := &hcsschema.VirtualSmb{
-		DirectFileMappingInMB: 1024, // Sensible default, but could be a tuning parameter somewhere
+		DirectFileMappingInMB: 16 * 1024, // Sensible default, but could be a tuning parameter somewhere
 		Shares: []hcsschema.VirtualSmbShare{
 			{
 				// TODO(pbozzay): Change this folder path to Files\Files.
@@ -168,7 +168,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			RegistryChanges: &registryChanges,
 			ComputeTopology: &hcsschema.Topology{
 				Memory: &hcsschema.Memory2{
-					SizeInMB:        memorySizeInMB,
+					SizeInMB:        16 * 1024,
 					AllowOvercommit: opts.AllowOvercommit,
 					// EnableHotHint is not compatible with physical.
 					EnableHotHint:        opts.AllowOvercommit,

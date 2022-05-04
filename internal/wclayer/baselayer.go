@@ -12,6 +12,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/safefile"
 	"github.com/Microsoft/hcsshim/internal/winapi"
+	"github.com/Microsoft/hcsshim/computestorage"
 	"go.opencensus.io/trace"
 )
 
@@ -172,7 +173,14 @@ func (w *baseLayerWriter) Close() (err error) {
 		}
 
 		if w.hasEFIDir {
-			err = ProcessUtilityVMImage(w.ctx, w.root.Name())
+			baseVhdPath := filepath.Join(w.root.Name(), "SystemTemplateBase.vhdx")
+			diffVhdPath := filepath.Join(w.root.Name(), "SystemTemplate.vhdx")
+
+			options := computestorage.OsLayerOptions {
+				SkipSandboxPreExpansion: true,
+			}
+
+			err = computestorage.SetupUtilityVMBaseLayer(w.ctx, w.root.Name(), baseVhdPath, diffVhdPath, 20, options)
 			if err != nil {
 				return err
 			}
