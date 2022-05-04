@@ -465,9 +465,9 @@ func (kt *kryptonTask) close(ctx context.Context) {
 			// Release any resources associated with the container.
 			// TODO(pbozzay): Not sure what to do here.
 			/*
-				if err := resources.ReleaseResources(ctx, kt.cr, kt.host, true); err != nil {
-					log.G(ctx).WithError(err).Error("failed to release container resources")
-				}
+			if err := resources.ReleaseResources(ctx, kt.cr, kt.uvm, true); err != nil {
+				log.G(ctx).WithError(err).Error("failed to release container resources")
+			}
 			*/
 
 			// Close the container handle invalidating all future access.
@@ -521,33 +521,7 @@ func (kt *kryptonTask) DumpGuestStacks(ctx context.Context) string {
 }
 
 func (kt *kryptonTask) Share(ctx context.Context, req *shimdiag.ShareRequest) error {
-	// TODO(pbozzay): Unsure what this should do when called.
-	return errors.New("Share API is not implemented for Krypton containers.")
-
-	/*
-		if kt.host == nil {
-			return errTaskNotIsolated
-		}
-		// For hyper-v isolated WCOW the task used isn't the standard kryptonTask so we
-		// only have to deal with the LCOW case here.
-		st, err := os.Stat(req.HostPath)
-		if err != nil {
-			return fmt.Errorf("could not open '%s' path on host: %s", req.HostPath, err)
-		}
-		var (
-			hostPath       string = req.HostPath
-			restrictAccess bool
-			fileName       string
-			allowedNames   []string
-		)
-		if !st.IsDir() {
-			hostPath, fileName = filepath.Split(hostPath)
-			allowedNames = append(allowedNames, fileName)
-			restrictAccess = true
-		}
-		_, err = kt.host.AddPlan9(ctx, hostPath, req.UvmPath, req.ReadOnly, restrictAccess, allowedNames)
-		return err
-	*/
+	return kt.uvm.Share(ctx, req.HostPath, req.UvmPath, req.ReadOnly)
 }
 
 func kryptonPropertiesToWindowsStats(props *hcsschema.Properties) *stats.Statistics_Windows {
@@ -605,6 +579,25 @@ func saveAsKryptonTemplate(ctx context.Context, templateTask *kryptonTask) (err 
 
 	if err = templateTask.uvm.RemoveAllNICs(ctx); err != nil {
 		return err
+	}
+
+
+	for _, m := range templateTask.taskSpec.Mounts {
+
+		// Mount options are fstab-formatted. Search the list for read only tags.
+		readOnly := false
+		for _, m := range m.Options {
+			if m == "ro" {
+				readOnly = true
+				break
+			}
+		}
+
+		// Add the mount.
+		err = templateTask.uvm.RemoveVSMB(ctx, m.Source, readOnly)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err = templateTask.uvm.CloseGCSConnection(); err != nil {
