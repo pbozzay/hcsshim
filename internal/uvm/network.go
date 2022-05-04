@@ -32,6 +32,16 @@ var (
 	ErrNICNotFound = errors.New("NIC not found in network namespace")
 )
 
+func (uvm *UtilityVM) SetupNetworkNamespace(ctx context.Context, nsid string) error {
+
+	// Query endpoints with actual nsid
+	endpoints, err := GetNamespaceEndpoints(ctx, nsid)
+	if err != nil {
+		return err
+	}
+
+	return uvm.SetupNetworkNamespaceWithEndpoints(ctx, nsid, endpoints)
+}
 // Network namespace setup is a bit different for templates and clones.
 // For templates and clones we use a special network namespace ID.
 // Details about this can be found in the Networking section of the late-clone wiki page.
@@ -40,16 +50,10 @@ var (
 // UVM. We hot add the namespace (with the default ID if this is a template). We get the
 // endpoints associated with this namespace and then hot add those endpoints (by changing
 // their namespace IDs by the deafult IDs if it is a template).
-func (uvm *UtilityVM) SetupNetworkNamespace(ctx context.Context, nsid string) error {
+func (uvm *UtilityVM) SetupNetworkNamespaceWithEndpoints(ctx context.Context, nsid string, endpoints []*hns.HNSEndpoint) error {
 	nsidInsideUVM := nsid
 	if uvm.IsTemplate || uvm.IsClone {
 		nsidInsideUVM = DEFAULT_CLONE_NETWORK_NAMESPACE_ID
-	}
-
-	// Query endpoints with actual nsid
-	endpoints, err := GetNamespaceEndpoints(ctx, nsid)
-	if err != nil {
-		return err
 	}
 
 	// Add the network namespace inside the UVM if it is not a clone. (Clones will
@@ -82,8 +86,8 @@ func (uvm *UtilityVM) SetupNetworkNamespace(ctx context.Context, nsid string) er
 			}
 		}
 	}
-
-	if err = uvm.AddEndpointsToNS(ctx, nsidInsideUVM, endpoints); err != nil {
+	err := uvm.AddEndpointsToNS(ctx, nsidInsideUVM, endpoints)
+	if err != nil {
 		// Best effort clean up the NS
 		if removeErr := uvm.RemoveNetNS(ctx, nsidInsideUVM); removeErr != nil {
 			log.G(ctx).Warn(removeErr)

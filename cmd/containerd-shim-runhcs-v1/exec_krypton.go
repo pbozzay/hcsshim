@@ -4,13 +4,15 @@ import (
 	"context"
 	"sync"
 	"time"
+	"math/rand"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim"
 
+	"github.com/Microsoft/hcsshim/hcn"
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
+	"github.com/Microsoft/hcsshim/internal/hns"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/signals"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -39,7 +41,7 @@ func newKryptonExec(
 	spec *specs.Process,
 	s *specs.Spec,
 	uvm *uvm.UtilityVM,
-	network	*hcsshim.HNSNetwork,
+	network	*hns.HNSNetwork,
 	io cmd.UpstreamIO) shimExec {
 	log.G(ctx).WithFields(logrus.Fields{
 		"tid":    tid,
@@ -97,7 +99,7 @@ type kryptonExec struct {
 	spec *specs.Process
 	s    *specs.Spec
 	uvm  *uvm.UtilityVM
-	network *hcsshim.HNSNetwork
+	network *hns.HNSNetwork
 	// io is the upstream io connections used for copying between the upstream
 	// io and the downstream io. The upstream IO MUST already be connected at
 	// create time in order to be valid.
@@ -198,35 +200,48 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
-		name, err := guid.NewV4()
+
+	  rand.Seed(time.Now().UnixNano())
+
+		namespace := &hcn.HostComputeNamespace{
+			Type:        hcn.NamespaceTypeHostDefault,
+			NamespaceId: rand.Uint32(),
+			SchemaVersion: hcn.SchemaVersion{
+				Major: 2,
+				Minor: 0,
+			},
+		}
+
+		namespace, err = namespace.Create()
 		if err != nil {
 			return err
 		}
-		Endpoint := &hcsshim.HNSEndpoint{
-			Name: name.String(),
+		nsid := namespace.Id
+
+		endpointID, err := guid.NewV4()
+		if err != nil {
+			return err
+		}
+
+		Endpoint := &hns.HNSEndpoint{
+			Name: endpointID.String(),
 		}
 
 		Endpoint, err = ke.network.CreateEndpoint(Endpoint)
 		if err != nil {
 			return err
 		}
+		Endpoint.Namespace = &hns.Namespace{}
+
 		log.G(ctx).Debug("KryptonExec::Created Network Endpoint")
-		nicId, err := guid.NewV4()
-		if err != nil {
-			return (err)
-		}
-		Endpoint.Namespace = &hcsshim.Namespace{}
-		err = ke.uvm.AddNIC(ctx, nicId.String(), Endpoint)
-		if err != nil {
-			return (err)
-		}
-		log.G(ctx).Debug("KryptonExec::Added Network Endpoint to Guest")
-		/*
-		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
+
+    endpoints := []*hns.HNSEndpoint{Endpoint}
+
+		err = ke.uvm.SetupNetworkNamespaceWithEndpoints(ctx, nsid, endpoints)
+
 		if err != nil {
 			return err
 		}
-		*/
 	}
 
 	// Set up any requested folder mounts. This is done after the container is

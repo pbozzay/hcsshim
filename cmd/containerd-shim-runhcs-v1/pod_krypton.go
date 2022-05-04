@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim"
+	"github.com/Microsoft/hcsshim/internal/hns"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/osversion"
@@ -66,10 +66,10 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 	rand.Seed(time.Now().UnixNano())
 
 	class_c_net := strconv.Itoa(rand.Intn(255))
-	network := &hcsshim.HNSNetwork{
+	network := &hns.HNSNetwork{
 		Type: "NAT",
 		Name: netName.String(),
-		Subnets: []hcsshim.Subnet{
+		Subnets: []hns.Subnet{
 			{
 				AddressPrefix:  "192.168." + (class_c_net) + ".0/24",
 				GatewayAddress: "192.168." + (class_c_net) + ".1",
@@ -106,7 +106,7 @@ type kryptonPod struct {
 	// to release the lock to allow concurrent creates.
 	wcl           sync.Mutex
 	workloadTasks sync.Map
-	network	      *hcsshim.HNSNetwork
+	network	      *hns.HNSNetwork
 }
 
 func (p *kryptonPod) ID() string {
