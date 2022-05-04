@@ -42,6 +42,10 @@ type OptionsWCOW struct {
 	// `TemplateConfig` field.
 	IsClone bool
 
+	// IsKrypton specifies if the UVM should be created via the Files folder rather
+	// than utilizing a UtilityVM folder.
+	IsKrypton bool
+
 	// TemplateConfig is only used during clone creation. If a uvm is
 	// being cloned then this TemplateConfig struct must be passed
 	// which holds all the information about the template from
@@ -92,6 +96,12 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	// Align the requested memory size.
 	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
 
+	vsmbFolder := filepath.Join(uvmFolder, `UtilityVM\Files`)
+
+	if opts.IsKrypton {
+		vsmbFolder = filepath.Join(uvmFolder, `Files`)
+	}
+
 	// UVM rootfs share is readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
@@ -101,7 +111,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			{
 				// TODO(pbozzay): Change this folder path to Files\Files.
 				Name:    "os",
-				Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
+				Path:    vsmbFolder,
 				Options: vsmbOpts,
 			},
 		},
@@ -240,9 +250,16 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		return nil, errors.Wrap(err, errBadUVMOpts.Error())
 	}
 
-	uvmFolder, err := uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
-	if err != nil {
-		return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
+	var uvmFolder string
+
+	if !opts.IsKrypton {
+		latestUVMFolder, err := uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
+		}
+		uvmFolder = latestUVMFolder
+	} else {
+		uvmFolder = opts.LayerFolders[0]
 	}
 
 	// TODO: BUGBUG Remove this. @jhowardmsft
@@ -269,7 +286,11 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		// Create sandbox.vhdx in the scratch folder based on the template, granting the correct permissions to it
 		scratchPath := filepath.Join(scratchFolder, "sandbox.vhdx")
 		if _, err := os.Stat(scratchPath); os.IsNotExist(err) {
-			if err := wcow.CreateUVMScratch(ctx, uvmFolder, scratchFolder, uvm.id); err != nil {
+			templateDir := uvmFolder
+			if !opts.IsKrypton {
+				templateDir = filepath.Join(templateDir, `UtilityVM`)
+			}
+			if err := wcow.CreateUVMScratch(ctx, templateDir, scratchFolder, uvm.id); err != nil {
 				return nil, fmt.Errorf("failed to create scratch: %s", err)
 			}
 		} else {

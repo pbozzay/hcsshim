@@ -24,6 +24,7 @@ type baseLayerWriter struct {
 	bw           *winio.BackupFileWriter
 	err          error
 	hasUtilityVM bool
+	hasEFIDir    bool
 	dirInfo      []dirInfo
 }
 
@@ -83,6 +84,9 @@ func (w *baseLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo) (err e
 
 	if filepath.ToSlash(name) == `UtilityVM/Files` {
 		w.hasUtilityVM = true
+	}
+	if filepath.ToSlash(name) == `Files/EFI` {
+		w.hasEFIDir = true
 	}
 
 	var f *os.File
@@ -165,6 +169,13 @@ func (w *baseLayerWriter) Close() (err error) {
 		err = ProcessBaseLayer(w.ctx, w.root.Name())
 		if err != nil {
 			return err
+		}
+
+		if w.hasEFIDir {
+			err = ProcessUtilityVMImage(w.ctx, w.root.Name())
+			if err != nil {
+				return err
+			}
 		}
 
 		if w.hasUtilityVM {

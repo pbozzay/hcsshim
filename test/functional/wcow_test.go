@@ -687,7 +687,7 @@ func TestWCOWXenonOciV2(t *testing.T) {
 	// Create the utility VM.
 	xenonOci2UVMId := "xenonOci2UVM"
 	xenonOci2UVMScratchDir := testutilities.CreateTempDir(t)
-	if err := wcow.CreateUVMScratch(context.Background(), uvmImagePath, xenonOci2UVMScratchDir, xenonOci2UVMId); err != nil {
+	if err := wcow.CreateUVMScratch(context.Background(), filepath.Join(uvmImagePath, `UtilityVM`), xenonOci2UVMScratchDir, xenonOci2UVMId); err != nil {
 		t.Fatalf("failed to create scratch: %s", err)
 	}
 
