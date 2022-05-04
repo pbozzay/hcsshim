@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/Microsoft/hcsshim"
 	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"os"
@@ -36,6 +37,7 @@ import (
 func newKryptonTask(
 	ctx context.Context,
 	events publisher,
+	network	*hcsshim.HNSNetwork,
 	req *task.CreateTaskRequest,
 	s *specs.Spec) (_ shimTask, err error) {
 
@@ -107,6 +109,7 @@ func newKryptonTask(
 			s.Process,
 			s,
 			wcow,
+			network,
 			io,
 		)
 

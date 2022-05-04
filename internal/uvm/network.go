@@ -376,7 +376,7 @@ func (uvm *UtilityVM) AddEndpointToNSWithID(ctx context.Context, nsID, nicID str
 			}
 			nicID = id.String()
 		}
-		if err := uvm.addNIC(ctx, nicID, endpoint); err != nil {
+		if err := uvm.AddNIC(ctx, nicID, endpoint); err != nil {
 			return err
 		}
 		ns.nics[endpoint.Id] = &nicInfo{
@@ -407,7 +407,7 @@ func (uvm *UtilityVM) AddEndpointsToNS(ctx context.Context, id string, endpoints
 			if err != nil {
 				return err
 			}
-			if err := uvm.addNIC(ctx, nicID.String(), endpoint); err != nil {
+			if err := uvm.AddNIC(ctx, nicID.String(), endpoint); err != nil {
 				return err
 			}
 			ns.nics[endpoint.Id] = &nicInfo{
@@ -527,8 +527,8 @@ func getNetworkModifyRequest(adapterID string, requestType string, settings inte
 	}
 }
 
-// addNIC adds a nic to the Utility VM.
-func (uvm *UtilityVM) addNIC(ctx context.Context, id string, endpoint *hns.HNSEndpoint) error {
+// AddNIC adds a nic to the Utility VM.
+func (uvm *UtilityVM) AddNIC(ctx context.Context, id string, endpoint *hns.HNSEndpoint) error {
 	// First a pre-add. This is a guest-only request and is only done on Windows.
 	endpoint.Namespace.ID = "00000000-0000-0000-0000-000000000000"
 	if uvm.operatingSystem == "windows" {

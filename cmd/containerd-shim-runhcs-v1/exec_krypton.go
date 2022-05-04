@@ -5,6 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim"
+
 	"github.com/Microsoft/hcsshim/internal/cmd"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/guestrequest"
@@ -36,6 +39,7 @@ func newKryptonExec(
 	spec *specs.Process,
 	s *specs.Spec,
 	uvm *uvm.UtilityVM,
+	network	*hcsshim.HNSNetwork,
 	io cmd.UpstreamIO) shimExec {
 	log.G(ctx).WithFields(logrus.Fields{
 		"tid":    tid,
@@ -52,6 +56,7 @@ func newKryptonExec(
 		spec:        spec,
 		s:           s,
 		uvm:         uvm,
+		network:     network,
 		io:          io,
 		processDone: make(chan struct{}),
 		state:       shimExecStateCreated,
@@ -92,6 +97,7 @@ type kryptonExec struct {
 	spec *specs.Process
 	s    *specs.Spec
 	uvm  *uvm.UtilityVM
+	network *hcsshim.HNSNetwork
 	// io is the upstream io connections used for copying between the upstream
 	// io and the downstream io. The upstream IO MUST already be connected at
 	// create time in order to be valid.
@@ -192,10 +198,35 @@ func (ke *kryptonExec) startInternal(ctx context.Context, initializeContainer bo
 	//
 	// TODO(pbozzay): Is it possible to do this before the container is started?
 	if ke.s.Windows != nil && ke.s.Windows.Network != nil && ke.s.Windows.Network.NetworkNamespace != "" {
+		name, err := guid.NewV4()
+		if err != nil {
+			return err
+		}
+		Endpoint := &hcsshim.HNSEndpoint{
+			Name: name.String(),
+		}
+
+		Endpoint, err = ke.network.CreateEndpoint(Endpoint)
+		if err != nil {
+			return err
+		}
+		log.G(ctx).Debug("KryptonExec::Created Network Endpoint")
+		nicId, err := guid.NewV4()
+		if err != nil {
+			return (err)
+		}
+		Endpoint.Namespace = &hcsshim.Namespace{}
+		err = ke.uvm.AddNIC(ctx, nicId.String(), Endpoint)
+		if err != nil {
+			return (err)
+		}
+		log.G(ctx).Debug("KryptonExec::Added Network Endpoint to Guest")
+		/*
 		err = ke.uvm.SetupNetworkNamespace(ctx, ke.s.Windows.Network.NetworkNamespace)
 		if err != nil {
 			return err
 		}
+		*/
 	}
 
 	// Set up any requested folder mounts. This is done after the container is

@@ -3,7 +3,12 @@ package main
 import (
 	"context"
 	"sync"
+	"math/rand"
+	"strconv"
+	"time"
 
+	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oci"
 	"github.com/Microsoft/hcsshim/osversion"
@@ -53,6 +58,32 @@ func createKryptonPod(ctx context.Context, events publisher, req *task.CreateTas
 			Pid:        0,
 		})
 
+	netName, err := guid.NewV4()
+	if err != nil {
+		return nil, err
+	}
+
+	rand.Seed(time.Now().UnixNano())
+
+	class_c_net := strconv.Itoa(rand.Intn(255))
+	network := &hcsshim.HNSNetwork{
+		Type: "NAT",
+		Name: netName.String(),
+		Subnets: []hcsshim.Subnet{
+			{
+				AddressPrefix:  "192.168." + (class_c_net) + ".0/24",
+				GatewayAddress: "192.168." + (class_c_net) + ".1",
+			},
+		},
+	}
+
+	network, err = network.Create()
+	if err != nil {
+		return nil, err
+	}
+
+	p.network = network
+
 	return &p, nil
 }
 
@@ -75,6 +106,7 @@ type kryptonPod struct {
 	// to release the lock to allow concurrent creates.
 	wcl           sync.Mutex
 	workloadTasks sync.Map
+	network	      *hcsshim.HNSNetwork
 }
 
 func (p *kryptonPod) ID() string {
@@ -123,7 +155,7 @@ func (p *kryptonPod) CreateTask(ctx context.Context, req *task.CreateTaskRequest
 			sid)
 	}
 
-	st, err := newKryptonTask(ctx, p.events, req, s)
+	st, err := newKryptonTask(ctx, p.events, p.network, req, s)
 	if err != nil {
 		return nil, err
 	}
