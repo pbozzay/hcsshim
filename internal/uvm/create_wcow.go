@@ -52,6 +52,9 @@ type OptionsWCOW struct {
 	// which this clone should be created.
 	TemplateConfig *UVMTemplateConfig
 
+	// DirectFileMappingInMB
+	DirectFileMappingInMB uint64
+
 	// NoDirectMap specifies that no direct mapping should be used for any VSMBs added to the UVM
 	NoDirectMap bool
 }
@@ -94,7 +97,8 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	uvm.processorCount = uvm.normalizeProcessorCount(ctx, opts.ProcessorCount, processorTopology)
 
 	// Align the requested memory size.
-	// memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
+	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
+	directFileMappingInMB := uvm.normalizeMemorySize(ctx, opts.DirectFileMappingInMB)
 
 	vsmbFolder := filepath.Join(uvmFolder, `UtilityVM\Files`)
 
@@ -106,7 +110,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
 	virtualSMB := &hcsschema.VirtualSmb{
-		DirectFileMappingInMB: 16 * 1024, // Sensible default, but could be a tuning parameter somewhere
+		DirectFileMappingInMB: int64(directFileMappingInMB), // Sensible default, but could be a tuning parameter somewhere
 		Shares: []hcsschema.VirtualSmbShare{
 			{
 				// TODO(pbozzay): Change this folder path to Files\Files.
@@ -168,7 +172,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			RegistryChanges: &registryChanges,
 			ComputeTopology: &hcsschema.Topology{
 				Memory: &hcsschema.Memory2{
-					SizeInMB:        16 * 1024,
+					SizeInMB:        memorySizeInMB,
 					AllowOvercommit: opts.AllowOvercommit,
 					// EnableHotHint is not compatible with physical.
 					EnableHotHint:        opts.AllowOvercommit,

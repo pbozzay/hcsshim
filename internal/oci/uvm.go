@@ -105,6 +105,8 @@ const (
 	annotationMemoryLowMMIOGapInMB   = "io.microsoft.virtualmachine.computetopology.memory.lowmmiogapinmb"
 	annotationMemoryHighMMIOBaseInMB = "io.microsoft.virtualmachine.computetopology.memory.highmmiobaseinmb"
 	annotationMemoryHighMMIOGapInMB  = "io.microsoft.virtualmachine.computetopology.memory.highmmiogapinmb"
+	annotationDirectFileMappingInMB  = "io.microsoft.virtualmachine.computetopology.memory.directfilemappinginmb"
+
 	// annotationProcessorCount overrides the hypervisor isolated vCPU count set
 	// via the OCI spec.
 	//
@@ -444,9 +446,8 @@ func SpecToKryptonUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner st
 		return nil, errors.New("cannot create linux UVM opts for krypton spec")
 	} else if IsWCOW(s) {
 		wopts := uvm.NewDefaultOptionsWCOW(id, owner)
-		//wopts.MemorySizeInMB = ParseAnnotationsMemory(ctx, s, annotationMemorySizeInMB, wopts.MemorySizeInMB)
-		wopts.MemorySizeInMB = ParseAnnotationsMemory(ctx, s, annotationMemorySizeInMB, wopts.MemorySizeInMB) * 2
 		wopts.MemorySizeInMB = ParseAnnotationsMemory(ctx, s, annotationMemorySizeInMB, wopts.MemorySizeInMB)
+		wopts.DirectFileMappingInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationDirectFileMappingInMB, wopts.DirectFileMappingInMB)
 		wopts.LowMMIOGapInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationMemoryLowMMIOGapInMB, wopts.LowMMIOGapInMB)
 		wopts.HighMMIOBaseInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationMemoryHighMMIOBaseInMB, wopts.HighMMIOBaseInMB)
 		wopts.HighMMIOGapInMB = parseAnnotationsUint64(ctx, s.Annotations, annotationMemoryHighMMIOGapInMB, wopts.HighMMIOGapInMB)
